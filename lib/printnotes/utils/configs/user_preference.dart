@@ -15,7 +15,7 @@ class UserLayoutPref {
   }
 
   static String getLayoutView() {
-    return App.localStorage.getString('layoutView') ?? 'grid';
+    return App.localStorage.getString('layoutView') ?? 'list';
   }
 
   // Note preview length is for how many characters are displayed for each note
@@ -163,7 +163,7 @@ class UserAdvancedPref {
   }
 
   static bool getLatexSupport() {
-    return App.localStorage.getBool('useLatex') ?? false;
+    return App.localStorage.getBool('useLatex') ?? true;
   }
 
   // For using Frontmatter for metadata of not

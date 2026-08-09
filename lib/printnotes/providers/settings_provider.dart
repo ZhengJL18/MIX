@@ -15,14 +15,14 @@ class SettingsProvider with ChangeNotifier {
   bool _showIntro = true;
   bool _hideTitleBar = false;
   bool _bottomBarPersistence = false;
-  bool _useLatex = false;
+  bool _useLatex = true;
   bool _useFrontmatter = false;
 
   String _mainDir = '';
   String _archivePath = '';
   String _trashPath = '';
 
-  String _layout = 'grid';
+  String _layout = 'list';
   String _folderPriority = 'none';
   String _sortOrder = 'default';
 
