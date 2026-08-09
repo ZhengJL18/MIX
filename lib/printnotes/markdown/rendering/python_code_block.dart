@@ -514,6 +514,8 @@ class PythonEngine {
   Future<void>? _initFuture;
   bool _disposed = false;
   Set<String> _loadedWheels = {};
+  // JS async 操作结果回传（callHandler → Completer）
+  Completer<String>? _resultCompleter;
 
   // 串行执行队列
   Future<void> _tail = Future.value();
@@ -585,17 +587,17 @@ class PythonEngine {
     await _ensureInit();
     final controller = _controller!;
 
-    // 1) 加载 wheels（幂等，Pyodide 内部会跳过已加载的）
-    final toLoad = wheels.difference(_loadedWheels);
+    // 1) 加载 wheels（按拓扑序，先依赖后本体；幂等跳过已加载的）
+    final toLoad = _topoOrder(wheels.difference(_loadedWheels));
     if (toLoad.isNotEmpty) {
       final dir = await _appSupport;
       final paths = toLoad.map((n) {
         final w = _wheels[n]!;
         return 'file://${dir.path}/$_packagesDir/${w.wheel}';
       }).toList();
-      final res = await controller.evaluateJavascript(
-          source: 'mixLoadWheels(${jsonEncode(paths)})');
-      var map = _decodeMap(res);
+      final res = await _evalWithResult(
+          'mixLoadWheels(${jsonEncode(paths)})');
+      final map = _decodeMap(res);
       if (map['ok'] != true) {
         throw StateError('加载 Python 库失败: ${map['error'] ?? 'unknown'}');
       }
@@ -603,9 +605,8 @@ class PythonEngine {
     }
 
     // 2) 执行
-    final res = await controller.evaluateJavascript(
-        source: 'mixRun(${jsonEncode(code)})')
-      .timeout(_runTimeout);
+    final res = await _evalWithResult('mixRun(${jsonEncode(code)})')
+        .timeout(_runTimeout);
     final map = _decodeMap(res);
     if (map['ok'] != true) {
       return PythonRunResult(
@@ -623,6 +624,40 @@ class PythonEngine {
       stderr: (map['stderr'] ?? '').toString(),
       images: images,
     );
+  }
+
+  /// 按依赖拓扑排序（先依赖后本体），供 loadPackageFromFile 顺序加载。
+  List<String> _topoOrder(Set<String> names) {
+    final result = <String>[];
+    final visited = <String>{};
+    void visit(String n) {
+      if (visited.contains(n)) return;
+      visited.add(n);
+      final w = _wheels[n];
+      if (w == null) return;
+      for (final d in w.deps) {
+        if (_wheels.containsKey(d)) visit(d);
+      }
+      result.add(n);
+    }
+
+    for (final n in names) {
+      visit(n);
+    }
+    return result;
+  }
+
+  /// 执行 JS（async 函数）：结果由 JS 侧 callHandler 主动回传。
+  Future<String> _evalWithResult(String source) async {
+    final c = Completer<String>();
+    _resultCompleter = c;
+    try {
+      await _controller!.evaluateJavascript(source: source);
+    } catch (e) {
+      _resultCompleter = null;
+      if (!c.isCompleted) c.completeError(e);
+    }
+    return c.future;
   }
 
   Map<String, dynamic> _decodeMap(dynamic res) {
@@ -678,6 +713,21 @@ class PythonEngine {
       ),
       onWebViewCreated: (controller) {
         _controller = controller;
+        // JS → Dart 主动回传：async 操作（加载 wheels / 执行代码）完成后
+        // 由 JS 调用 callHandler 把结果推给 Dart（evaluateJavascript 无法等待 Promise）。
+        controller.addJavaScriptHandler(
+          handlerName: 'mixAsyncResult',
+          callback: (args) {
+            if (args.isNotEmpty && args.first is String) {
+              final c = _resultCompleter;
+              _resultCompleter = null;
+              if (c != null && !c.isCompleted) {
+                c.complete(args.first as String);
+              }
+            }
+            return null;
+          },
+        );
         if (!created.isCompleted) created.complete();
       },
       onLoadStop: (controller, url) async {
@@ -752,20 +802,20 @@ async function mixInit() {
 }
 
 async function mixLoadWheels(paths) {
-  if (!mix_ready) return JSON.stringify({ok: false, error: 'pyodide not ready'});
   try {
+    if (!mix_ready) { window.flutter_inappwebview.callHandler('mixAsyncResult', JSON.stringify({ok: false, error: 'pyodide not ready'})); return; }
     for (var i = 0; i < paths.length; i++) {
       await mix_pyodide.loadPackageFromFile(paths[i]);
     }
-    return JSON.stringify({ok: true});
+    window.flutter_inappwebview.callHandler('mixAsyncResult', JSON.stringify({ok: true}));
   } catch (e) {
-    return JSON.stringify({ok: false, error: String(e)});
+    window.flutter_inappwebview.callHandler('mixAsyncResult', JSON.stringify({ok: false, error: String(e)}));
   }
 }
 
 async function mixRun(code) {
-  if (!mix_ready) return JSON.stringify({ok: false, error: 'pyodide not ready'});
   try {
+    if (!mix_ready) { window.flutter_inappwebview.callHandler('mixAsyncResult', JSON.stringify({ok: false, error: 'pyodide not ready'})); return; }
     var pre = [
       "import sys, io, base64",
       "import matplotlib",
@@ -798,13 +848,13 @@ async function mixRun(code) {
       "result = json.dumps({'ok': True, 'stdout': _MIX_OUT.getvalue(), 'stderr': _MIX_ERR.getvalue(), 'images': _MIX_IMGS})"
     ].join('\\n');
     mix_pyodide.runPython(post);
-    return mix_pyodide.globals.get('result');
+    window.flutter_inappwebview.callHandler('mixAsyncResult', mix_pyodide.globals.get('result'));
   } catch (e) {
     var stderr = '';
     try {
       stderr = mix_pyodide.runPython('_MIX_ERR.getvalue()') || '';
     } catch (_) {}
-    return JSON.stringify({ok: false, error: String(e), stdout: '', stderr: stderr});
+    window.flutter_inappwebview.callHandler('mixAsyncResult', JSON.stringify({ok: false, error: String(e), stdout: '', stderr: stderr}));
   }
 }
 </script>
