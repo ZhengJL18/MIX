@@ -20,6 +20,7 @@ import 'package:mix/printnotes/markdown/rendering/code_wrapper.dart';
 import 'package:mix/printnotes/markdown/rendering/custom_img_builder.dart';
 import 'package:mix/printnotes/markdown/rendering/custom_node.dart';
 import 'package:mix/printnotes/markdown/rendering/latex.dart';
+import 'package:mix/printnotes/markdown/rendering/latex_protector.dart';
 import 'package:mix/printnotes/markdown/rendering/wiki_link.dart';
 import 'package:mix/printnotes/markdown/rendering/highlighter.dart';
 import 'package:mix/printnotes/markdown/rendering/underline.dart';
@@ -212,8 +213,12 @@ Widget buildMarkdownWidget(
   TextEditingController? editingController,
   Future<void> Function()? onCheckboxToggle,
 }) {
+  // LaTeX 开启时，把公式提取成占位符再交给 markdown 解析，
+  // 渲染层再还原成公式节点（见 custom_node.dart / latex_protector.dart）。
+  final renderData =
+      context.watch<SettingsProvider>().useLatex ? protectLatex(data) : data;
   return MarkdownWidget(
-    data: data,
+    data: renderData,
     controller: controller,
     tocController: tocController,
     physics: physics,

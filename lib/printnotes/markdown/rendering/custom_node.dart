@@ -8,6 +8,8 @@ import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart
 import 'package:markdown/markdown.dart' as m;
 
 import 'html_support.dart';
+import 'latex.dart';
+import 'latex_protector.dart';
 import '../markdown_widget/markdown_widget.dart';
 
 class CustomTextNode extends ElementNode {
@@ -34,6 +36,23 @@ class CustomTextNode extends ElementNode {
   void onAccepted(SpanNode parent) {
     final textStyle = config.p.textStyle.merge(parentStyle);
     children.clear();
+    // 公式占位符优先处理：把文本拆成普通段 + 公式段，
+    // 公式段还原为 LatexNode（flutter_math_fork 渲染）。
+    final parts = splitLatex(text);
+    if (parts.any((p) => p.latex != null)) {
+      for (final part in parts) {
+        if (part.latex != null) {
+          accept(LatexNode(
+            {'content': part.latex!, 'isInline': '${part.isInline}'},
+            '\$${part.latex!}\$',
+            config,
+          ));
+        } else {
+          accept(TextNode(text: part.text, style: textStyle));
+        }
+      }
+      return;
+    }
     if (!text.contains(htmlRep)) {
       accept(TextNode(text: text, style: textStyle));
       return;

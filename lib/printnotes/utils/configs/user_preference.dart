@@ -18,6 +18,16 @@ class UserLayoutPref {
     return App.localStorage.getString('layoutView') ?? 'list';
   }
 
+  // 用户是否手动切换过布局。用于区分「用户主动选的 grid」和
+  // 「旧版默认值 grid」（后者应在启动时纠正为 list 单列）。
+  static void setLayoutUserSet(bool userSet) {
+    App.localStorage.setBool('layoutView_userSet', userSet);
+  }
+
+  static bool getLayoutUserSet() {
+    return App.localStorage.getBool('layoutView_userSet') ?? false;
+  }
+
   // Note preview length is for how many characters are displayed for each note
   // body on home screen before they get cut off
   static void setNotePreviewLength(int viewLength) {

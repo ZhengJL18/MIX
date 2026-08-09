@@ -102,7 +102,15 @@ class SettingsProvider with ChangeNotifier {
     if (mainDir != null) setHiddenFolders(mainDir);
 
     setMainDir(mainDir ?? '');
-    setLayout(UserLayoutPref.getLayoutView());
+    // 布局：不经过 setLayout（避免把 userSet 误标为 true）。
+    // 旧版默认 grid 且用户从未手动切换 → 纠正为单列 list。
+    final layoutValue = UserLayoutPref.getLayoutView();
+    if (layoutValue == 'grid' && !UserLayoutPref.getLayoutUserSet()) {
+      _layout = 'list';
+      UserLayoutPref.setLayoutView('list');
+    } else {
+      _layout = layoutValue;
+    }
     setFolderPriority(UserSortPref.getFolderPriority());
     setSortOrder(UserSortPref.getSortOrder());
     setTitleBarVisibility(UserAdvancedPref.getTitleBarVisibility());
@@ -126,6 +134,8 @@ class SettingsProvider with ChangeNotifier {
   void setLayout(String layout) {
     _layout = layout;
     UserLayoutPref.setLayoutView(layout);
+    // 记录用户手动切换过布局：启动时不再把 grid 纠正为 list。
+    UserLayoutPref.setLayoutUserSet(true);
     notifyListeners();
   }
 

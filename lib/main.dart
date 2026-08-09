@@ -70,9 +70,12 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   themeController.load();
   // printnotes 子系统需要 SharedPreferences 全局（App.localStorage）。
+  // 不静默吞异常：迁移/初始化失败要打日志，便于排查。
   try {
     await App.init();
-  } catch (_) {}
+  } catch (e, st) {
+    debugPrint('App.init failed: $e\n$st');
+  }
   runApp(const MIXApp());
 }
 
