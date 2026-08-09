@@ -573,6 +573,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _messages.clear();
         _toolRunningIdx.clear();
         _reasoningMsgIdx = -1;
+        _showScrollToBottom = false; // 新会话从底部开始，恢复自动跟随。
         for (final m in stored) {
           final role = m['role'] as String? ?? 'user';
           final content = m['content'] as String?;
@@ -587,6 +588,11 @@ class _ChatScreenState extends State<ChatScreen> {
             ));
           }
         }
+      });
+      // 历史加载完直接看最新消息（会话开头先锚到底部）。
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_scrollController.hasClients) return;
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
       });
     } catch (_) {}
   }
@@ -1392,8 +1398,15 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _addUser(String text) {
-    setState(() => _messages.add(_ChatMessage.user(text)));
-    _scrollToBottom();
+    setState(() {
+      _messages.add(_ChatMessage.user(text));
+      _showScrollToBottom = false; // 发消息 = 主动回底，恢复自动跟随。
+    });
+    // 发送的消息必须立即可见：无条件跳到底部。
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    });
   }
 
   void _addAssistant(String text) {
@@ -1402,8 +1415,10 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// 消息列表滚动到底（流式输出时跟随最新文字）。
-  /// 仅当用户已近底部才自动跟随，避免上滑读历史时被强制拉走。
+  /// 仅当用户停留在底部附近才跟随；用户一旦上滑读历史就完全停止
+  /// 打扰（直到他回底/发消息），避免"疯狂划回底部"。
   void _scrollToBottom() {
+    if (_showScrollToBottom) return; // 用户在上方读历史，不打扰。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
       final pos = _scrollController.position;
@@ -1418,8 +1433,9 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!_scrollController.hasClients) return;
     final pos = _scrollController.position;
     final nearBottom = pos.maxScrollExtent - pos.pixels < 120;
-    if (nearBottom == !_showScrollToBottom) {
-      setState(() => _showScrollToBottom = !nearBottom);
+    final shouldShow = !nearBottom;
+    if (shouldShow != _showScrollToBottom) {
+      setState(() => _showScrollToBottom = shouldShow);
     }
   }
 
