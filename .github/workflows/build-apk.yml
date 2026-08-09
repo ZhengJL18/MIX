@@ -61,6 +61,22 @@ jobs:
       # versionCode 每次 push 必升，App 端据此检测到新版本。
       # --target-platform android-arm64：只打 arm64-v8a，放弃 32 位老机型
       # 与 x86 模拟器，APK 体积减半以上（ABI 是乘数，原生库每个 ABI 各一份）。
+      #
+      # serious_python（原生 CPython 嵌入，替代 WebView+Pyodide）：
+      #   1) 先用 serious_python CLI 打包 Python runner（assets/python/runner/main.py，
+      #      纯 stdlib HTTP server）→ staging 到 build/serious_python_app，gradle 会
+      #      把 CPython 运行时 + stdlib + app 一起打进 APK。
+      #   2) 不装任何 site-packages（--skip-site-packages）：科学计算 wheels
+      #      （numpy/matplotlib/...）全部运行时按需下载解压注入，不进 APK。
+      #   3) SERIOUS_PYTHON_SITE_PACKAGES 必须指向一个存在的目录（构建脚本检查非空）。
+      - name: Package Python runner (serious_python)
+        run: |
+          export SERIOUS_PYTHON_APP=$GITHUB_WORKSPACE/build/serious_python_app
+          export SERIOUS_PYTHON_SITE_PACKAGES=$GITHUB_WORKSPACE/build/site-packages
+          mkdir -p "$SERIOUS_PYTHON_SITE_PACKAGES"
+          dart run serious_python:main package assets/python/runner \
+            -p Android --arch arm64-v8a --skip-site-packages
+
       - name: Build APK (release)
         run: flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}
 

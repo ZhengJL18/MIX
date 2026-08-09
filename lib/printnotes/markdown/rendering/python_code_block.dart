@@ -1,11 +1,15 @@
-// Python 代码块执行：内置 Pyodide core 运行时（WebAssembly Python），
-// 在 HeadlessInAppWebView 中跑真实 CPython，支持 numpy/matplotlib/networkx
-// 画图并渲染成图片。科学计算 wheels 按需从用户 GitHub 仓库下载并缓存。
+// Python 代码块执行：serious_python 原生 CPython（非 WASM）在后台线程运行，
+// 通过 HTTP 与本 App 通信（runner = assets/python/runner/main.py，纯 stdlib）。
+// 支持 numpy/matplotlib/networkx 画图并渲染成图片。科学计算 wheels 按需从
+// 用户 GitHub 仓库下载、解压到私有目录、运行时注入 sys.path（不进 APK）。
 //
-// 架构（与 mermaid_widget 一致）：
-//   - 全局单例 PythonEngine：全 App 只维护一个 WebView，串行执行所有代码块
-//   - 首次运行解压 pyodide core（assets 内 6.7MB）→ loadPyodide → 常驻复用
-//   - import 分析 → 依赖闭包 → 缺失 wheel 提示下载 → 执行 → 返回 stdout + 图片
+// 架构（与旧 WebView+Pyodide 方案的区别）：
+//   - 旧：WASM CPython 跑在 HeadlessInAppWebView，单线程 + JS 桥接，matplotlib
+//     大图渲染超时画不出来（性能瓶颈是结构性的）。
+//   - 新：原生 CPython 3.14 后台线程（serious_python），HTTP/JSON 通信，
+//     matplotlib Agg 渲染为原生速度，图秒出。
+//   - 全局单例 PythonEngine：全 App 只维护一个 runner，串行执行所有代码块
+//   - import 分析 → 依赖闭包 → 缺失 wheel 提示下载 → 解压注入 → 执行 → 返回 stdout + 图片
 
 import 'dart:async';
 import 'dart:convert';
@@ -13,11 +17,10 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import 'package:serious_python/serious_python.dart';
 
-import '../../../services/remote_asset_manager.dart';
 import 'code_engine.dart';
 
 /// 单个 wheel 的描述（名称 = import 顶层名）。
@@ -29,32 +32,33 @@ class PyWheel {
   final List<String> deps;
 }
 
-/// 全部已准备的 wheels（存放在 GitHub 仓库 assets/python/wheels/）。
+/// 全部已准备的 wheels（存放在 GitHub 仓库 assets/python/wheels-android/）。
+/// 平台：CPython 3.14 + Android arm64（android_24_arm64_v8a）。
 /// key = import 顶层包名（含 from X import 的 X）。
 const Map<String, PyWheel> _wheels = {
   'numpy': PyWheel(
-      'numpy', 'numpy-2.4.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl', 15.0,
+      'numpy', 'numpy-2.4.6-1-cp314-cp314-android_24_arm64_v8a.whl', 6.8,
       []),
   'matplotlib': PyWheel(
       'matplotlib',
-      'matplotlib-3.10.8-cp314-cp314-pyemscripten_2026_0_wasm32.whl',
-      10.8,
+      'matplotlib-3.10.9-2-cp314-cp314-android_24_arm64_v8a.whl',
+      8.2,
       ['numpy', 'contourpy', 'cycler', 'fonttools', 'kiwisolver', 'packaging',
        'pyparsing', 'dateutil', 'pytz', 'six', 'PIL']),
   'networkx': PyWheel(
       'networkx', 'networkx-3.6.1-py3-none-any.whl', 2.2, []),
   'PIL': PyWheel(
-      'PIL', 'pillow-12.2.0-cp314-cp314-pyemscripten_2026_0_wasm32.whl', 4.5,
+      'PIL', 'pillow-12.2.0-1-cp314-cp314-android_24_arm64_v8a.whl', 0.6,
       []),
   'contourpy': PyWheel(
       'contourpy',
-      'contourpy-1.3.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl', 3.1, []),
+      'contourpy-1.3.3-1-cp314-cp314-android_24_arm64_v8a.whl', 0.3, []),
   'cycler': PyWheel('cycler', 'cycler-0.12.1-py3-none-any.whl', 0.1, []),
   'fonttools': PyWheel(
       'fonttools', 'fonttools-4.62.1-py3-none-any.whl', 3.6, []),
   'kiwisolver': PyWheel(
-      'kiwisolver', 'kiwisolver-1.5.0-cp314-cp314-pyemscripten_2026_0_wasm32.whl',
-      1.4, []),
+      'kiwisolver', 'kiwisolver-1.5.0-1-cp314-cp314-android_24_arm64_v8a.whl',
+      0.1, []),
   'packaging': PyWheel('packaging', 'packaging-26.1-py3-none-any.whl', 0.1, []),
   'pyparsing': PyWheel('pyparsing', 'pyparsing-3.3.2-py3-none-any.whl', 0.2, []),
   'dateutil': PyWheel(
@@ -527,36 +531,37 @@ class _CodeView extends StatelessWidget {
   }
 }
 
-/// 全局唯一 Python 执行引擎（Pyodide）。
+/// 全局唯一 Python 执行引擎（serious_python 原生 CPython）。
 ///
-/// - 首次使用：解压 pyodide core（assets）→ 创建 WebView → loadPyodide
-/// - 串行执行所有代码块（同一时刻只有一个 WebView 任务）
-/// - wheels 下载到应用私有目录缓存
+/// - 首次使用：启动 runner（assets/python/runner/main.py 打包进 APK 的
+///   stdlib-only HTTP server）→ 后台线程跑 CPython 3.14 → 轮询端口文件
+/// - 串行执行所有代码块（同一时刻只有一个 runner 任务）
+/// - wheels 下载到应用私有目录，解压后通过 HTTP /add_path 注入 sys.path
 class PythonEngine {
   PythonEngine._();
   static final PythonEngine instance = PythonEngine._();
 
-  /// 解压后 pyodide 运行时目录（相对 appSupport）。
-  static const _pyodideDir = 'pyodide';
+  /// wheel 下载缓存目录（相对 appSupport）。
   static const _packagesDir = 'python_packages';
 
-  /// 从用户 GitHub 仓库下载 wheels。
+  /// wheel 解压注入目录（相对 appSupport）。
+  static const _wheelsDir = 'python_wheels';
+
+  /// 从用户 GitHub 仓库下载 wheels（android arm64 平台）。
   static const _githubBase =
-      'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/python/wheels/';
+      'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/python/wheels-android/';
 
   /// wheels 下载地址（公开，供 PythonCodeEngine.requiredAssets 使用）。
   static String get wheelsBaseUrl => _githubBase;
 
-  static const _initTimeout = Duration(seconds: 60);
-  static const _runTimeout = Duration(seconds: 90);
+  static const _startTimeout = Duration(seconds: 60);
+  static const _runTimeout = Duration(seconds: 120);
 
-  HeadlessInAppWebView? _webView;
-  InAppWebViewController? _controller;
-  Future<void>? _initFuture;
-  bool _disposed = false;
+  // runner 状态
+  bool _started = false;
+  Future<void>? _startFuture;
+  int? _port;
   Set<String> _loadedWheels = {};
-  // JS async 操作结果回传（callHandler → Completer）
-  Completer<String>? _resultCompleter;
 
   // 串行执行队列
   Future<void> _tail = Future.value();
@@ -564,7 +569,7 @@ class PythonEngine {
   Future<Directory> get _appSupport async =>
       await getApplicationSupportDirectory();
 
-  /// 已下载缓存的 wheel 是否就绪。
+  /// 已下载缓存的 wheel 是否就绪（检查 .whl 文件存在）。
   Future<Set<String>> missingWheels(Set<String> closure) async {
     final dir = Directory('${(await _appSupport).path}/$_packagesDir');
     final missing = <String>{};
@@ -608,7 +613,7 @@ class PythonEngine {
   }
 
   /// 执行 Python 代码（串行）。wheels = 需要加载的包闭包。
-  /// onPhase 每进入一个阶段回调一次（初始化引擎 / 加载库 / 执行代码 / 渲染图片），
+  /// onPhase 每进入一个阶段回调一次（初始化引擎 / 加载库 / 执行代码），
   /// 供 UI 显示当前进度。
   Future<PythonRunResult> run(
     String code,
@@ -635,35 +640,27 @@ class PythonEngine {
     Set<String> wheels, {
     void Function(String phase)? onPhase,
   }) async {
-    await _ensureInit();
-    final controller = _controller!;
+    await _ensureStarted();
 
-    // 1) 加载 wheels（按拓扑序，先依赖后本体；幂等跳过已加载的）
+    // 1) 解压缺失的 wheel → HTTP add_path 注入 sys.path（按拓扑序）
     final toLoad = _topoOrder(wheels.difference(_loadedWheels));
     if (toLoad.isNotEmpty) {
       onPhase?.call('加载库');
-      final dir = await _appSupport;
-      final paths = toLoad.map((n) {
-        final w = _wheels[n]!;
-        return 'file://${dir.path}/$_packagesDir/${w.wheel}';
-      }).toList();
-      final res = await _evalWithResult(
-          'mixLoadWheels(${jsonEncode(paths)})');
-      final map = _decodeMap(res);
-      if (map['ok'] != true) {
-        throw StateError('加载 Python 库失败: ${map['error'] ?? 'unknown'}');
+      for (final name in toLoad) {
+        final dir = await _extractWheel(name);
+        await _post('/add_path', {'path': dir});
       }
       _loadedWheels.addAll(toLoad);
     }
 
     // 2) 执行
-    final res = await _evalWithResult('mixRun(${jsonEncode(code)})')
-        .timeout(_runTimeout);
-    final map = _decodeMap(res);
+    onPhase?.call('执行代码');
+    final map = await _post('/run', {'code': code}).timeout(_runTimeout);
     if (map['ok'] != true) {
       return PythonRunResult(
           error: (map['error'] ?? 'unknown error').toString(),
-          stdout: (map['stdout'] ?? '').toString());
+          stdout: (map['stdout'] ?? '').toString(),
+          stderr: (map['stderr'] ?? '').toString());
     }
     final images = <String>[];
     if (map['images'] is List) {
@@ -678,7 +675,42 @@ class PythonEngine {
     );
   }
 
-  /// 按依赖拓扑排序（先依赖后本体），供 loadPackageFromFile 顺序加载。
+  /// 解压 .whl（zip 格式）到私有目录 python_wheels/<name>/，返回该目录。
+  /// 幂等：已解压直接返回。
+  Future<String> _extractWheel(String name) async {
+    final w = _wheels[name]!;
+    final appSupport = await _appSupport;
+    final wheelFile = File('${appSupport.path}/$_packagesDir/${w.wheel}');
+    final outDir = Directory('${appSupport.path}/$_wheelsDir/$name');
+    if (outDir.existsSync() && outDir.listSync().isNotEmpty) {
+      return outDir.path;
+    }
+
+    if (!wheelFile.existsSync()) {
+      throw StateError('wheel 未下载: ${w.wheel}');
+    }
+    final bytes = await wheelFile.readAsBytes();
+    if (outDir.existsSync()) await outDir.delete(recursive: true);
+    await outDir.create(recursive: true);
+
+    // .whl 是 zip：解压出包目录 + dist-info（PyPI 标准布局）
+    final archive = ZipDecoder().decodeBytes(bytes);
+    for (final f in archive) {
+      if (f.isFile) {
+        final rel = f.name;
+        // 防御：跳过可疑路径（防止 zip slip）
+        if (rel.contains('..') || rel.startsWith('/')) continue;
+        final out = File('${outDir.path}/$rel');
+        if (!out.parent.existsSync()) {
+          await out.parent.create(recursive: true);
+        }
+        await out.writeAsBytes(f.content as List<int>, flush: true);
+      }
+    }
+    return outDir.path;
+  }
+
+  /// 按依赖拓扑排序（先依赖后本体），供 sys.path 注入顺序使用。
   List<String> _topoOrder(Set<String> names) {
     final result = <String>[];
     final visited = <String>{};
@@ -699,225 +731,68 @@ class PythonEngine {
     return result;
   }
 
-  /// 执行 JS（async 函数）：结果由 JS 侧 callHandler 主动回传。
-  Future<String> _evalWithResult(String source) async {
-    final c = Completer<String>();
-    _resultCompleter = c;
-    try {
-      await _controller!.evaluateJavascript(source: source);
-    } catch (e) {
-      _resultCompleter = null;
-      if (!c.isCompleted) c.completeError(e);
-    }
-    return c.future;
+  /// 启动 runner（幂等）：SeriousPython.run() 后台线程跑 main.py，
+  /// 轮询 <support>/data/mix_runner_port.json 拿 HTTP 端口。
+  Future<void> _ensureStarted() async {
+    if (_started) return;
+    if (_startFuture != null) return _startFuture;
+    _startFuture = _start();
+    return _startFuture;
   }
 
-  Map<String, dynamic> _decodeMap(dynamic res) {
-    if (res is Map) return Map<String, dynamic>.from(res);
-    if (res is String) {
-      try {
-        final d = jsonDecode(res);
-        if (d is Map) return Map<String, dynamic>.from(d);
-      } catch (_) {}
-    }
-    return {};
-  }
+  Future<void> _start() async {
+    // serious_python：启动打包的 main.py（runner HTTP server），后台线程
+    await SeriousPython.run();
 
-  Future<void> _ensureInit() async {
-    if (_webView != null && !_disposed) return;
-    if (_initFuture != null) return _initFuture;
-    _initFuture = _create();
-    return _initFuture;
-  }
-
-  Future<void> _create() async {
-    _disposed = false;
-
-    // 解压 pyodide core（幂等；core 按需下载，不打包进 APK）
+    // 轮询端口文件（runner 启动后写入 <support>/data/mix_runner_port.json）
     final appSupport = await _appSupport;
-    final runtimeDir = Directory('${appSupport.path}/$_pyodideDir');
-    if (!File('${runtimeDir.path}/pyodide.js').existsSync()) {
-      // 首次使用：从 RemoteAssetManager 获取 core（未缓存则下载）
-      final corePath = await RemoteAssetManager.instance.ensure('pyodide-core');
-      final bytes = await File(corePath).readAsBytes();
-      if (!runtimeDir.existsSync()) await runtimeDir.create(recursive: true);
-      final archive = BZip2Decoder().decodeBytes(bytes);
-      final tar = TarDecoder().decodeBytes(archive);
-      for (final f in tar.files) {
-        if (f.isFile) {
-          final out = File('${runtimeDir.path}/${f.name}');
-          if (!out.parent.existsSync()) {
-            await out.parent.create(recursive: true);
-          }
-          await out.writeAsBytes(f.content as List<int>, flush: true);
-        }
-      }
-    }
-
-    final created = Completer<void>();
-    final headless = HeadlessInAppWebView(
-      initialSettings: InAppWebViewSettings(
-        javaScriptEnabled: true,
-        domStorageEnabled: true,
-        allowFileAccess: true,
-        allowFileAccessFromFileURLs: true,
-        allowUniversalAccessFromFileURLs: true,
-      ),
-      onWebViewCreated: (controller) {
-        _controller = controller;
-        // JS → Dart 主动回传：async 操作（加载 wheels / 执行代码）完成后
-        // 由 JS 调用 callHandler 把结果推给 Dart（evaluateJavascript 无法等待 Promise）。
-        controller.addJavaScriptHandler(
-          handlerName: 'mixAsyncResult',
-          callback: (args) {
-            if (args.isNotEmpty && args.first is String) {
-              final c = _resultCompleter;
-              _resultCompleter = null;
-              if (c != null && !c.isCompleted) {
-                c.complete(args.first as String);
-              }
-            }
-            return null;
-          },
-        );
-        if (!created.isCompleted) created.complete();
-      },
-      onLoadStop: (controller, url) async {
-        // 加载完成后调用 mixInit（幂等）初始化 Pyodide
-        if (_initFuture == null) return;
-        try {
-          await controller.evaluateJavascript(source: 'mixInit()');
-        } catch (_) {}
-      },
-      onLoadError: (controller, url, code, message) {
-        // 忽略（onReceivedError 已处理）
-      },
-    );
-    _webView = headless;
-    await headless.run();
-    await created.future.timeout(const Duration(seconds: 15));
-
-    // 加载 HTML（baseUrl 指向解压后的 pyodide 运行时目录）
-    final runtimeUrl =
-        WebUri('file://${runtimeDir.path}/');
-    await _controller!.loadData(
-      data: _buildHtml(),
-      baseUrl: runtimeUrl,
-    );
-
-    // 等待 mixInit 完成（轮询标记）
-    final ready = await _waitForPyodideReady();
-    if (!ready) {
-      throw StateError('Pyodide 初始化失败或超时');
-    }
-  }
-
-  Future<bool> _waitForPyodideReady() async {
-    final deadline = DateTime.now().add(_initTimeout);
+    final portFile = File('${appSupport.path}/data/mix_runner_port.json');
+    final deadline = DateTime.now().add(_startTimeout);
     while (DateTime.now().isBefore(deadline)) {
       try {
-        final res = await _controller!.evaluateJavascript(
-            source: 'mixReady()');
-        if (res == true || res == 'true' || res == 1) return true;
-      } catch (_) {}
+        if (await portFile.exists()) {
+          final text = await portFile.readAsString();
+          final map = jsonDecode(text);
+          if (map is Map && map['port'] is int) {
+            _port = map['port'] as int;
+            // 确认 runner 存活
+            final ping = await _post('/ping', {}).timeout(const Duration(seconds: 5));
+            if (ping['ok'] == true) {
+              _started = true;
+              return;
+            }
+          }
+        }
+      } catch (_) {
+        // 端口文件可能还没写完 / runner 未就绪，重试
+      }
       await Future.delayed(const Duration(milliseconds: 500));
     }
-    return false;
+    throw StateError('Python runner 启动超时（60s）');
   }
 
-  String _buildHtml() {
-    return '''
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<script src="pyodide.js"></script>
-</head>
-<body>
-<script>
-var mix_pyodide = null;
-var mix_ready = false;
-
-function mixReady() {
-  return mix_ready;
-}
-
-async function mixInit() {
-  if (mix_ready) return JSON.stringify({ok: true});
-  try {
-    mix_pyodide = await loadPyodide({indexURL: document.baseURI});
-    mix_ready = true;
-    return JSON.stringify({ok: true});
-  } catch (e) {
-    return JSON.stringify({ok: false, error: String(e)});
-  }
-}
-
-async function mixLoadWheels(paths) {
-  try {
-    if (!mix_ready) { window.flutter_inappwebview.callHandler('mixAsyncResult', JSON.stringify({ok: false, error: 'pyodide not ready'})); return; }
-    for (var i = 0; i < paths.length; i++) {
-      await mix_pyodide.loadPackageFromFile(paths[i]);
+  /// 向 runner 发 HTTP POST JSON 请求。
+  Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> body) async {
+    final port = _port;
+    if (port == null) throw StateError('Python runner 未就绪');
+    final resp = await http
+        .post(
+          Uri.parse('http://127.0.0.1:$port$path'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (resp.statusCode != 200) {
+      throw StateError('runner HTTP ${resp.statusCode}: $path');
     }
-    window.flutter_inappwebview.callHandler('mixAsyncResult', JSON.stringify({ok: true}));
-  } catch (e) {
-    window.flutter_inappwebview.callHandler('mixAsyncResult', JSON.stringify({ok: false, error: String(e)}));
+    final decoded = jsonDecode(resp.body);
+    if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    return {'ok': false, 'error': 'runner 返回异常: $decoded'};
   }
 }
 
-async function mixRun(code) {
-  try {
-    if (!mix_ready) { window.flutter_inappwebview.callHandler('mixAsyncResult', JSON.stringify({ok: false, error: 'pyodide not ready'})); return; }
-    var pre = [
-      "import sys, io, base64",
-      "import matplotlib",
-      "matplotlib.use('Agg')",
-      "import matplotlib.pyplot as plt",
-      "_MIX_IMGS = []",
-      "def _mix_show(*a, **k):",
-      "    _mix_save_figs()",
-      "def _mix_save_figs():",
-      "    import io as _io, base64 as _b64",
-      "    for _f in plt.get_fignums():",
-      "        _fig = plt.figure(_f)",
-      "        _buf = _io.BytesIO()",
-      "        _fig.savefig(_buf, format='png', dpi=110, bbox_inches='tight')",
-      "        _MIX_IMGS.append(_b64.b64encode(_buf.getvalue()).decode())",
-      "        plt.close(_fig)",
-      "plt.show = _mix_show",
-      "_MIX_OUT = io.StringIO()",
-      "_MIX_ERR = io.StringIO()",
-      "_mix_orig_stdout, _mix_orig_stderr = sys.stdout, sys.stderr",
-      "sys.stdout, sys.stderr = _MIX_OUT, _MIX_ERR",
-      ""
-    ].join('\\n');
-    mix_pyodide.runPython(pre);
-    mix_pyodide.runPython(code);
-    var post = [
-      "_mix_save_figs()",
-      "sys.stdout, sys.stderr = _mix_orig_stdout, _mix_orig_stderr",
-      "import json",
-      "result = json.dumps({'ok': True, 'stdout': _MIX_OUT.getvalue(), 'stderr': _MIX_ERR.getvalue(), 'images': _MIX_IMGS})"
-    ].join('\\n');
-    mix_pyodide.runPython(post);
-    window.flutter_inappwebview.callHandler('mixAsyncResult', mix_pyodide.globals.get('result'));
-  } catch (e) {
-    var stderr = '';
-    try {
-      stderr = mix_pyodide.runPython('_MIX_ERR.getvalue()') || '';
-    } catch (_) {}
-    window.flutter_inappwebview.callHandler('mixAsyncResult', JSON.stringify({ok: false, error: String(e), stdout: '', stderr: stderr}));
-  }
-}
-</script>
-</body>
-</html>
-''';
-  }
-}
-
-/// python 引擎：内置 Pyodide 执行，matplotlib 画图渲染成图片。
-/// 运行时 pyodide core 打包进 APK；科学计算 wheels 按需从 GitHub 仓库下载。
+/// python 引擎：serious_python 原生 CPython 执行，matplotlib 画图渲染成图片。
+/// 运行时 CPython 打包进 APK；科学计算 wheels 按需从 GitHub 仓库下载。
 class PythonCodeEngine extends CodeEngine {
   const PythonCodeEngine();
 
@@ -928,7 +803,7 @@ class PythonCodeEngine extends CodeEngine {
   List<String> get aliases => const ['py'];
 
   @override
-  String get displayName => 'Python (Pyodide)';
+  String get displayName => 'Python (Native)';
 
   @override
   List<EngineAsset> get requiredAssets => _wheels.entries.map((e) {

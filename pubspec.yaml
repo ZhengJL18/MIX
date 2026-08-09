@@ -74,6 +74,10 @@ dependencies:
   animated_tree_view: ^2.3.0
   introduction_screen: ^4.0.0
 
+  # Python 代码块执行：serious_python 原生 CPython 嵌入（替代 WebView+Pyodide）。
+  # 运行时（CPython 3.14 + stdlib）构建时打进 APK；科学计算 wheels 按需下载注入。
+  serious_python: ^4.5.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

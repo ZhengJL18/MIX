@@ -1,4 +1,4 @@
-// 按需下载资源管理器：大体积运行时资源（pyodide core、mermaid.min.js 等）
+// 按需下载资源管理器：大体积运行时资源（mermaid.min.js、pdf.js 等）
 // 不打包进 APK，首次使用时从 GitHub 仓库下载到应用私有目录缓存，之后永久复用。
 // 与 wheels 按需下载同一模式，但抽象成通用组件，任何引擎/功能都能注册资源。
 //
@@ -47,12 +47,6 @@ class RemoteAssetManager {
 
   /// 全 App 注册的远程资源表（key = 资源逻辑名）。
   final Map<String, RemoteAssetSpec> _specs = {
-    'pyodide-core': RemoteAssetSpec(
-      name: 'pyodide-core-314.0.4.tar.bz2',
-      url:
-          'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/python/pyodide-core-314.0.4.tar.bz2',
-      sizeMB: 6.7,
-    ),
     'mermaid': RemoteAssetSpec(
       name: 'mermaid.min.js',
       url:
