@@ -28,6 +28,7 @@ import 'package:mix/printnotes/markdown/rendering/underline.dart';
 import 'package:mix/printnotes/markdown/rendering/note_tags.dart';
 
 import 'package:mix/printnotes/markdown/link_handler.dart';
+import 'package:mix/printnotes/markdown/rendering/python_code_block.dart';
 
 MarkdownConfig theMarkdownConfigs(
   BuildContext context, {
@@ -48,6 +49,11 @@ MarkdownConfig theMarkdownConfigs(
     // mermaid 代码块 → 渲染成图（Obsidian 原生行为）。
     if (language.toLowerCase() == 'mermaid') {
       return MermaidWidget(code: text);
+    }
+    // python 代码块 → 内置 Pyodide 执行，matplotlib 画图渲染成图片。
+    final lang = language.toLowerCase();
+    if (lang == 'python' || lang == 'py') {
+      return PythonCodeBlockWidget(code: text);
     }
     return CodeWrapperWidget(child, text, language,
         hideCodeButtons: hideCodeButtons);

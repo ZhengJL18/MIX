@@ -46,6 +46,7 @@ dependencies:
   yaml: ^3.1.3
   xml: ^7.0.1
   flutter_inappwebview: ^6.1.5
+  archive: ^4.0.5
   git2dart: ^0.5.4
   git2dart_binaries: ^1.12.1
   pointycastle: ^4.0.0
@@ -112,6 +113,8 @@ flutter:
   # mermaid 渲染：本地打包 mermaid.min.js，离线可用。
   assets:
     - assets/mermaid/mermaid.min.js
+    # Python 执行：内置 Pyodide core 运行时（科学计算 wheels 按需从 GitHub 下载）
+    - assets/python/pyodide-core-314.0.4.tar.bz2
 
   # To add assets to your application, add an assets section, like this:
   # assets:
