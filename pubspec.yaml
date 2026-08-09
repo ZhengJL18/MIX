@@ -78,6 +78,10 @@ dependencies:
   # 运行时（CPython 3.14 + stdlib）构建时打进 APK；科学计算 wheels 按需下载注入。
   serious_python: ^4.5.1
 
+  # C 代码块执行：libtcc（TinyCC）原生编译器嵌入，Dart FFI 直调编译执行。
+  # libtcc.so + 头文件由 CI 交叉编译后发布为 release asset，App 按需下载。
+  ffi: ^2.1.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

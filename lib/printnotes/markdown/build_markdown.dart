@@ -28,6 +28,7 @@ import 'package:mix/printnotes/markdown/rendering/underline.dart';
 import 'package:mix/printnotes/markdown/rendering/note_tags.dart';
 
 import 'package:mix/printnotes/markdown/link_handler.dart';
+import 'package:mix/printnotes/markdown/rendering/c_code_block.dart';
 import 'package:mix/printnotes/markdown/rendering/python_code_block.dart';
 import 'package:mix/printnotes/markdown/rendering/code_engine.dart';
 
@@ -51,7 +52,9 @@ MarkdownConfig theMarkdownConfigs(
     // 新增语言 = 新建 CodeEngine 实现 + 在这里注册一行（或引擎内部自注册）。
     CodeEngineRegistry.register(const MermaidCodeEngine());
     CodeEngineRegistry.register(const PythonCodeEngine());
-    // 命中已注册引擎（mermaid → 图，python → 原生 CPython 执行）→ 交给引擎。
+    CodeEngineRegistry.register(const CCodeEngine());
+    // 命中已注册引擎（mermaid → 图，python → 原生 CPython 执行，c → libtcc 编译执行）
+    // → 交给引擎。
     final engine = CodeEngineRegistry.engineFor(language);
     if (engine != null) {
       return engine.buildWidget(text);
