@@ -13,6 +13,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:isolate';
 
 import 'binary_extensions.dart';
@@ -236,6 +237,86 @@ String writeFileTool({
     if (result.error == null) {
       resultDict['files_modified'] = [_absPath(path)];
     }
+    return jsonEncode(resultDict);
+  } catch (e) {
+    return toolError('$e');
+  }
+}
+
+/// copy_file 工具：系统级字节复制（零 token 成本）。
+String copyFileTool({required String src, required String dst}) {
+  // src 设备路径守卫（读取端）。
+  if (_isBlockedDevice(src)) {
+    return toolError("copy_file: source is a blocked device path: $src");
+  }
+  // dst 写黑名单。
+  final sensitiveErr = getWriteDeniedError(dst);
+  if (sensitiveErr != null) {
+    return toolError(sensitiveErr);
+  }
+  try {
+    final fileOps = _getFileOps();
+    final result = fileOps.copyFile(src, dst);
+    final resultDict = result.toDict();
+    resultDict['src'] = _absPath(src);
+    resultDict['dst'] = _absPath(dst);
+    if (result.error == null) {
+      resultDict['files_modified'] = [_absPath(dst)];
+    }
+    return jsonEncode(resultDict);
+  } catch (e) {
+    return toolError('$e');
+  }
+}
+
+/// move_file 工具：系统级移动（零 token 成本）。
+String moveFileTool({required String src, required String dst}) {
+  if (_isBlockedDevice(src)) {
+    return toolError("move_file: source is a blocked device path: $src");
+  }
+  final sensitiveErr = getWriteDeniedError(dst);
+  if (sensitiveErr != null) {
+    return toolError(sensitiveErr);
+  }
+  try {
+    final fileOps = _getFileOps();
+    // 底层 moveFile 用 renameSync（同一文件系统）。跨挂载点（如
+    // /sdcard FUSE → 内部存储）rename 会失败，fallback 到 copy + delete。
+    final result = fileOps.moveFile(src, dst);
+    if (result.error != null &&
+        (File(_absPath(src)).existsSync() || Directory(_absPath(src)).existsSync())) {
+      // rename 失败且源仍在。fallback 前先做 src 写守卫（copy+delete 会删源）。
+      final srcDenied = getWriteDeniedError(_absPath(src), verb: 'Move');
+      if (srcDenied != null) {
+        return toolError('move_file: $srcDenied');
+      }
+      final absSrc = _absPath(src);
+      final absDst = _absPath(dst);
+      final copy = fileOps.copyFile(src, dst);
+      if (copy.error != null) {
+        return toolError(
+            'move_file failed ($result.error), copy fallback also failed: ${copy.error}');
+      }
+      final del = fileOps.deletePath(src, recursive: true);
+      if (del.error != null) {
+        return toolError(
+            'move_file: copied to $absDst but could not remove source: ${del.error}');
+      }
+      final resultDict = copy.toDict();
+      resultDict['src'] = absSrc;
+      resultDict['dst'] = absDst;
+      resultDict['moved'] = true;
+      resultDict['note'] = 'Used copy+delete fallback (cross-filesystem move).';
+      resultDict['files_modified'] = [absDst];
+      return jsonEncode(resultDict);
+    }
+    if (result.error != null) {
+      return toolError('move_file: ${result.error}');
+    }
+    final resultDict = result.toDict();
+    resultDict['src'] = _absPath(src);
+    resultDict['dst'] = _absPath(dst);
+    resultDict['files_modified'] = [_absPath(dst)];
     return jsonEncode(resultDict);
   } catch (e) {
     return toolError('$e');
@@ -535,6 +616,47 @@ const Map<String, dynamic> searchFilesSchema = {
   },
 };
 
+const Map<String, dynamic> copyFileSchema = {
+  'name': 'copy_file',
+  'description':
+      "Copy a file or a directory tree from src to dst as a system-level byte copy (zero token cost — no read+write round-trip needed). Creates parent directories automatically. Ideal for duplicating files between e.g. /sdcard and the app sandbox. Overwrites dst if it already exists. Use this instead of read_file+write_file when you just need to duplicate or relocate content.",
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'src': {
+        'type': 'string',
+        'description': 'Source path (file or directory) to copy from',
+      },
+      'dst': {
+        'type': 'string',
+        'description':
+            'Destination path. For a file src, this is the new file path; for a directory src, this is the new directory path (the whole tree is copied recursively).',
+      },
+    },
+    'required': ['src', 'dst'],
+  },
+};
+
+const Map<String, dynamic> moveFileSchema = {
+  'name': 'move_file',
+  'description':
+      "Move or rename a file or directory from src to dst (system-level, zero token cost). The source is removed after a successful move; if src is a directory the whole tree is moved. Creates parent directories automatically. Use this instead of copy_file when the original should not be kept.",
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'src': {
+        'type': 'string',
+        'description': 'Source path (file or directory) to move from',
+      },
+      'dst': {
+        'type': 'string',
+        'description': 'Destination path',
+      },
+    },
+    'required': ['src', 'dst'],
+  },
+};
+
 /// handler 们。
 FutureOr<dynamic> _handleReadFile(Map<String, dynamic> args, [Map<String, dynamic>? kwargs]) {
   return readFileTool(
@@ -594,6 +716,22 @@ FutureOr<dynamic> _handleSearchFiles(Map<String, dynamic> args, [Map<String, dyn
   );
 }
 
+FutureOr<dynamic> _handleCopyFile(Map<String, dynamic> args, [Map<String, dynamic>? kwargs]) {
+  if (args['src'] is! String || args['dst'] is! String) {
+    return toolError(
+        "copy_file: missing required fields 'src' and/or 'dst'. Re-emit the tool call with both set.");
+  }
+  return copyFileTool(src: args['src'] as String, dst: args['dst'] as String);
+}
+
+FutureOr<dynamic> _handleMoveFile(Map<String, dynamic> args, [Map<String, dynamic>? kwargs]) {
+  if (args['src'] is! String || args['dst'] is! String) {
+    return toolError(
+        "move_file: missing required fields 'src' and/or 'dst'. Re-emit the tool call with both set.");
+  }
+  return moveFileTool(src: args['src'] as String, dst: args['dst'] as String);
+}
+
 bool _checkFileReqs() => true;
 
 /// 注册 file 工具集（对应 file_tools.py 模块层注册）。
@@ -632,6 +770,24 @@ void registerFileTools() {
     handler: _handleSearchFiles,
     checkFn: _checkFileReqs,
     emoji: '🔎',
+    maxResultSizeChars: 100000,
+  );
+  registry.register(
+    name: 'copy_file',
+    toolset: 'file',
+    schema: copyFileSchema,
+    handler: _handleCopyFile,
+    checkFn: _checkFileReqs,
+    emoji: '📋',
+    maxResultSizeChars: 100000,
+  );
+  registry.register(
+    name: 'move_file',
+    toolset: 'file',
+    schema: moveFileSchema,
+    handler: _handleMoveFile,
+    checkFn: _checkFileReqs,
+    emoji: '🚚',
     maxResultSizeChars: 100000,
   );
 }

@@ -568,6 +568,10 @@ abstract class FileOperations {
   /// 把文件从 src 移到 dst。返回 WriteResult，失败时 .error 已设置。
   WriteResult moveFile(String src, String dst);
 
+  /// 把文件或目录树从 src 复制到 dst（目录递归复制，系统级字节复制）。
+  /// 返回 WriteResult，失败时 .error 已设置。
+  WriteResult copyFile(String src, String dst);
+
   /// 搜索内容或文件。
   SearchResult search(
     String pattern, {
@@ -1283,6 +1287,64 @@ class LocalFileOperations implements FileOperations {
     } catch (e) {
       return WriteResult(error: 'Failed to move $src -> $dst: $e');
     }
+  }
+
+  @override
+  WriteResult copyFile(String src, String dst) {
+    final absSrc = _abs(src);
+    final absDst = _abs(dst);
+    // dst 走写黑名单（src 是读取，由工具层守卫设备路径）。
+    final denied = getWriteDeniedError(absDst, verb: 'Copy');
+    if (denied != null) {
+      return WriteResult(error: denied);
+    }
+    try {
+      final srcFile = File(absSrc);
+      if (srcFile.existsSync()) {
+        File(absDst).parent.createSync(recursive: true);
+        srcFile.copySync(absDst);
+        return WriteResult(bytesWritten: srcFile.lengthSync());
+      }
+      final srcDir = Directory(absSrc);
+      if (srcDir.existsSync()) {
+        final (bytes, err) = _copyDirRec(srcDir, Directory(absDst));
+        if (err != null) {
+          return WriteResult(error: err);
+        }
+        return WriteResult(bytesWritten: bytes);
+      }
+      return WriteResult(error: 'Failed to copy $src -> $dst: source does not exist');
+    } catch (e) {
+      return WriteResult(error: 'Failed to copy $src -> $dst: $e');
+    }
+  }
+
+  /// 递归复制目录树，返回 (复制的字节数, 错误或 null)。
+  (int, String?) _copyDirRec(Directory srcDir, Directory dstDir) {
+    try {
+      dstDir.createSync(recursive: true);
+    } catch (e) {
+      return (0, 'Failed to create $dstDir: $e');
+    }
+    var bytes = 0;
+    try {
+      for (final entity in srcDir.listSync(followLinks: false)) {
+        final dstPath = p.join(dstDir.path, p.basename(entity.path));
+        if (entity is File) {
+          entity.copySync(dstPath);
+          bytes += entity.lengthSync();
+        } else if (entity is Directory) {
+          final (sub, err) = _copyDirRec(entity, Directory(dstPath));
+          if (err != null) {
+            return (bytes, err);
+          }
+          bytes += sub;
+        }
+      }
+    } catch (e) {
+      return (bytes, 'Failed to copy directory $srcDir -> $dstDir: $e');
+    }
+    return (bytes, null);
   }
 
   // =========================================================================
