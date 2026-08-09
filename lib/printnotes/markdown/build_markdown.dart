@@ -49,9 +49,8 @@ MarkdownConfig theMarkdownConfigs(
   codeWrapper(child, text, language) {
     // 注册内置引擎（幂等：重复注册同名会覆盖，但无害）。
     // 新增语言 = 新建 CodeEngine 实现 + 在这里注册一行（或引擎内部自注册）。
-    CodeEngineRegistry
-      ..register(const MermaidCodeEngine())
-      ..register(const PythonCodeEngine());
+    CodeEngineRegistry.register(const MermaidCodeEngine());
+    CodeEngineRegistry.register(const PythonCodeEngine());
     // 命中已注册引擎（mermaid → 图，python → Pyodide 执行）→ 交给引擎。
     final engine = CodeEngineRegistry.engineFor(language);
     if (engine != null) {
@@ -154,22 +153,73 @@ MarkdownConfig theMarkdownConfigs(
     LinkConfig(onTap: (url) => linkHandler(context, url)),
     WikiLinkConfig(onTap: (url) => linkHandler(context, url)),
     const PreConfig().copy(
-      theme: themeMap[userCodeHighlight] ??
-          (isDark ? a11yDarkTheme : a11yLightTheme),
+      theme: _codeThemeNoBg(themeMap[userCodeHighlight] ??
+          (isDark ? a11yDarkTheme : a11yLightTheme)),
       decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.5),
+          // 与聊天气泡同源：surfaceContainerHighest（主题色阶），
+          // 不再是接近纯白的 surface —— 修复"涂改带"观感。
+          color: Theme.of(context)
+              .colorScheme
+              .surfaceContainerHighest
+              .withValues(alpha: 0.65),
           borderRadius: BorderRadius.all(Radius.circular(12)),
           border: Border.all(
               width: 1,
               color: Theme.of(context)
                   .colorScheme
                   .onSurface
-                  .withValues(alpha: 0.2))),
+                  .withValues(alpha: 0.15))),
       wrapper: codeWrapper,
-      textStyle: TextStyle(fontSize: inEditor ? editorFontSize : null),
-      styleNotMatched: TextStyle(fontSize: inEditor ? editorFontSize : null),
+      textStyle: TextStyle(
+          fontSize: inEditor ? editorFontSize : null,
+          color: Theme.of(context).colorScheme.onSurface),
+      styleNotMatched: TextStyle(
+          fontSize: inEditor ? editorFontSize : null,
+          color: Theme.of(context).colorScheme.onSurface),
+    ),
+    // 行内代码 `xxx` 背景同样跟随主题（原写死白底 0xCCeff1f3）。
+    CodeConfig(
+      style: TextStyle(
+          backgroundColor: Theme.of(context)
+              .colorScheme
+              .surfaceContainerHighest
+              .withValues(alpha: 0.65),
+          color: Theme.of(context).colorScheme.onSurface),
     ),
   ]);
+}
+
+/// 剥掉高亮主题里的 backgroundColor（如 a11yLight root 的纯白底），
+/// 让代码块背景完全由容器统一控制（跟随主题），避免"白底黑字"。
+/// 注意：不能用 copyWith(backgroundColor: null) —— copyWith 对 null 是
+/// "保持原值"，必须重建一个不设背景的 TextStyle。
+Map<String, TextStyle> _codeThemeNoBg(Map<String, TextStyle> theme) {
+  final copy = Map<String, TextStyle>.from(theme);
+  for (final entry in copy.entries.toList()) {
+    final s = entry.value;
+    if (s.backgroundColor != null) {
+      copy[entry.key] = TextStyle(
+        inherit: s.inherit,
+        color: s.color,
+        fontSize: s.fontSize,
+        fontWeight: s.fontWeight,
+        fontStyle: s.fontStyle,
+        letterSpacing: s.letterSpacing,
+        wordSpacing: s.wordSpacing,
+        height: s.height,
+        decoration: s.decoration,
+        decorationColor: s.decorationColor,
+        decorationStyle: s.decorationStyle,
+        shadows: s.shadows,
+        fontFamily: s.fontFamily,
+        fontFamilyFallback: s.fontFamilyFallback,
+        fontFeatures: s.fontFeatures,
+        fontVariations: s.fontVariations,
+        // 故意不传 backgroundColor / background —— 彻底去掉背景。
+      );
+    }
+  }
+  return copy;
 }
 
 MarkdownGenerator theMarkdownGenerators(BuildContext context,
