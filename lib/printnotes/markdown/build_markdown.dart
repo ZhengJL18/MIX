@@ -17,6 +17,7 @@ import 'package:flutter_highlight/themes/a11y-light.dart';
 import 'package:flutter_highlight/themes/a11y-dark.dart';
 
 import 'package:mix/printnotes/markdown/rendering/code_wrapper.dart';
+import 'package:mix/printnotes/markdown/rendering/mermaid_widget.dart';
 import 'package:mix/printnotes/markdown/rendering/custom_img_builder.dart';
 import 'package:mix/printnotes/markdown/rendering/custom_node.dart';
 import 'package:mix/printnotes/markdown/rendering/latex.dart';
@@ -43,8 +44,14 @@ MarkdownConfig theMarkdownConfigs(
 
   final userCodeHighlight = context.watch<ThemeProvider>().codeHighlight;
 
-  codeWrapper(child, text, language) => CodeWrapperWidget(child, text, language,
-      hideCodeButtons: hideCodeButtons);
+  codeWrapper(child, text, language) {
+    // mermaid 代码块 → 渲染成图（Obsidian 原生行为）。
+    if (language.toLowerCase() == 'mermaid') {
+      return MermaidWidget(code: text);
+    }
+    return CodeWrapperWidget(child, text, language,
+        hideCodeButtons: hideCodeButtons);
+  }
 
   double editorFontSize = context.watch<EditorConfigProvider>().fontSize;
 

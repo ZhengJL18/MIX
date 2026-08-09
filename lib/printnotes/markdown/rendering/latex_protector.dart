@@ -79,8 +79,15 @@ List<LatexPart> splitLatex(String text) {
 }
 
 String _encode(String content, {required bool isInline}) {
+  var c = content;
+  if (isInline) {
+    // 行内公式剥离 \tag{...}：KaTeX（flutter_math_fork 移植）不允许
+    // 行内模式使用 \tag，会直接解析失败（红色原文）。行内公式的编号
+    // 无意义，Obsidian/MathJax 同样忽略，这里剥掉保证公式本体正常渲染。
+    c = c.replaceAll(RegExp(r'\\tag\s*\{[^}]*\}'), '');
+  }
   final hex = utf8
-      .encode(content)
+      .encode(c)
       .map((b) => b.toRadixString(16).padLeft(2, '0'))
       .join();
   return '$_phStart$_phTag${isInline ? 'i' : 'b'}$hex$_phEnd';
