@@ -281,6 +281,8 @@ class _ChatScreenState extends State<ChatScreen> {
   // 工具名 → 当前 running 卡片的消息索引（done 时更新而非新增）。
   final Map<String, int> _toolRunningIdx = {};
   bool _running = false;
+  // 是否显示"回到底部"悬浮按钮（用户上滑离开底部时浮现）。
+  bool _showScrollToBottom = false;
   bool _planMode = false; // Claude Code 式 plan 模式：先出计划，批准后执行。
   String? _pendingPlan; // 待批准的计划。
   String? _pendingTask; // 待执行的任务原文（批准计划后执行用）。
@@ -359,6 +361,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onChatScroll);
     _scrollController.dispose();
     _controller.dispose();
     super.dispose();
@@ -368,6 +371,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     initConfig();
+    _scrollController.addListener(_onChatScroll);
     registerFileTools();
     registerWebTools();
     registerTodoTool();
@@ -1409,6 +1413,25 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  /// 滚动监听：用户上滑离开底部时浮现"回到底部"按钮。
+  void _onChatScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    final nearBottom = pos.maxScrollExtent - pos.pixels < 120;
+    if (nearBottom == !_showScrollToBottom) {
+      setState(() => _showScrollToBottom = !nearBottom);
+    }
+  }
+
+  /// 强制回到最新消息（点悬浮按钮）。
+  void _forceScrollToBottom() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    if (_showScrollToBottom) {
+      setState(() => _showScrollToBottom = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // ESC = 停止当前生成。
@@ -1635,8 +1658,10 @@ class _ChatScreenState extends State<ChatScreen> {
       body: Column(
         children: [
           Expanded(
-            child: _messages.isEmpty
-                ? Center(
+            child: Stack(
+              children: [
+                if (_messages.isEmpty)
+                  Center(
                     child: Padding(
                       padding: EdgeInsets.symmetric(horizontal: 32),
                       child: Text(
@@ -1647,7 +1672,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     ),
                   )
-                : ListView.builder(
+                else
+                  ListView.builder(
                     controller: _scrollController,
                     padding: const EdgeInsets.all(12),
                     itemCount: _messages.length,
@@ -1656,6 +1682,17 @@ class _ChatScreenState extends State<ChatScreen> {
                       return _buildMessage(m);
                     },
                   ),
+                // 上滑离开底部时浮现"回到底部"小按钮。
+                if (_showScrollToBottom)
+                  Positioned(
+                    right: 12,
+                    bottom: 12,
+                    child: _ScrollToBottomButton(
+                      onTap: _forceScrollToBottom,
+                    ),
+                  ),
+              ],
+            ),
           ),
           if (_running)
             const LinearProgressIndicator(minHeight: 2),
@@ -2262,5 +2299,33 @@ class _ChatScreenState extends State<ChatScreen> {
       default:
         return const SizedBox.shrink();
     }
+  }
+}
+
+/// "回到底部"小悬浮按钮：半透明圆形，上滑离开底部时浮现。
+class _ScrollToBottomButton extends StatelessWidget {
+  const _ScrollToBottomButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.9),
+      shape: const CircleBorder(),
+      elevation: 3,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Icon(
+            Icons.keyboard_arrow_down,
+            color: Theme.of(context).colorScheme.onSurface,
+            size: 24,
+          ),
+        ),
+      ),
+    );
   }
 }
