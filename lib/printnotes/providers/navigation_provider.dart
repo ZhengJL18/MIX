@@ -6,6 +6,7 @@ import 'package:mix/printnotes/constants/constants.dart';
 
 import 'package:mix/printnotes/utils/handlers/file_extensions.dart';
 import 'package:mix/printnotes/ui/screens/viewers/image_viewer.dart';
+import 'package:mix/printnotes/ui/screens/viewers/pdf_viewer.dart';
 import 'package:mix/printnotes/ui/screens/editors/notes/note_editor.dart';
 
 class NavigationProvider with ChangeNotifier {
@@ -54,11 +55,11 @@ class NavigationProvider with ChangeNotifier {
         if (fileTypeChecker(item.path) == CFileType.image) {
           _openPage(context, item, () => ImageViewScreen(imageUri: item));
         } else if (fileTypeChecker(item.path) == CFileType.pdf) {
-          // pdf 查看器依赖 pdfrx 重型包，首版用 note 编辑器兜底打开（文本/二进制看不了）。
+          // PDF 查看器：WebView + pdf.js（内核按需下载，见 PdfViewerScreen）。
           _openPage(
             context,
             item,
-            () => NoteEditorScreen(fileUri: item, newNote: newItem),
+            () => PdfViewerScreen(fileUri: item),
           );
         } else if (fileTypeChecker(item.path) == CFileType.sketch) {
           // 手写板 sketch 依赖 sketch_flow，首版跳过。
