@@ -13,11 +13,11 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import '../../../services/remote_asset_manager.dart';
 import 'code_engine.dart';
 
 /// 单个 wheel 的描述（名称 = import 顶层名）。
@@ -733,13 +733,13 @@ class PythonEngine {
   Future<void> _create() async {
     _disposed = false;
 
-    // 解压 pyodide core（幂等）
+    // 解压 pyodide core（幂等；core 按需下载，不打包进 APK）
     final appSupport = await _appSupport;
     final runtimeDir = Directory('${appSupport.path}/$_pyodideDir');
     if (!File('${runtimeDir.path}/pyodide.js').existsSync()) {
-      final bytes = await rootBundle
-          .load('assets/python/pyodide-core-314.0.4.tar.bz2')
-          .then((b) => b.buffer.asUint8List());
+      // 首次使用：从 RemoteAssetManager 获取 core（未缓存则下载）
+      final corePath = await RemoteAssetManager.instance.ensure('pyodide-core');
+      final bytes = await File(corePath).readAsBytes();
       if (!runtimeDir.existsSync()) await runtimeDir.create(recursive: true);
       final archive = BZip2Decoder().decodeBytes(bytes);
       final tar = TarDecoder().decodeBytes(archive);

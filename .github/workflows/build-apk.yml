@@ -59,8 +59,10 @@ jobs:
       # release 构建：用仓库内的 jailer-release.jks 固定签名（debug/release 同签名，
       # 覆盖安装不丢数据）。--build-number 用 github.run_number 单调递增 →
       # versionCode 每次 push 必升，App 端据此检测到新版本。
+      # --target-platform android-arm64：只打 arm64-v8a，放弃 32 位老机型
+      # 与 x86 模拟器，APK 体积减半以上（ABI 是乘数，原生库每个 ABI 各一份）。
       - name: Build APK (release)
-        run: flutter build apk --release --build-number=${{ github.run_number }}
+        run: flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

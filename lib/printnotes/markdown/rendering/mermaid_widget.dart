@@ -1,6 +1,6 @@
-// Mermaid 图表渲染：用本地打包的 mermaid.min.js（assets/mermaid/），
+// Mermaid 图表渲染：用 mermaid.min.js（首次使用按需下载，之后本地缓存），
 // HeadlessInAppWebView 执行渲染，提取 SVG 后交给 flutter_svg 显示。
-// 全程离线，无需网络，与 Obsidian 的 mermaid 渲染一致。
+// 资源不打包进 APK，由 RemoteAssetManager 统一按需下载（与 pyodide core 同一模式）。
 //
 // 内存优化（2026-08）：全 App 只维护【一个】HeadlessInAppWebView 实例，
 // 所有 mermaid 块通过全局串行队列复用它，渲染结果按代码哈希缓存；
@@ -10,12 +10,14 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
+import '../../../services/remote_asset_manager.dart';
 import 'code_engine.dart';
 
 /// mermaid 代码块 → 渲染后的 SVG 图。
@@ -135,9 +137,6 @@ class MermaidRenderer {
   MermaidRenderer._();
   static final MermaidRenderer instance = MermaidRenderer._();
 
-  /// 本地 mermaid.min.js 的 asset 路径（Android: file:///android_asset/...）。
-  static const _assetBase = 'file:///android_asset/flutter_assets/';
-
   static const _idleTtl = Duration(seconds: 60);
   static const _renderTimeout = Duration(seconds: 20);
   static const _maxCache = 30;
@@ -213,9 +212,13 @@ class MermaidRenderer {
     final completer = Completer<String>();
     _current = completer;
 
+    // mermaid.min.js 按需下载：首次渲染前确保本地缓存就绪（未缓存则下载）
+    final jsPath = await RemoteAssetManager.instance.ensure('mermaid');
+    final jsDir = File(jsPath).parent.path;
+
     await controller.loadData(
       data: _buildHtml(code),
-      baseUrl: WebUri('$_assetBase/assets/mermaid/'),
+      baseUrl: WebUri('file://$jsDir/'),
     );
 
     try {
@@ -241,6 +244,10 @@ class MermaidRenderer {
       initialSettings: InAppWebViewSettings(
         javaScriptEnabled: true,
         domStorageEnabled: true,
+        // 访问私有目录缓存（mermaid.min.js 按需下载到 appSupport）
+        allowFileAccess: true,
+        allowFileAccessFromFileURLs: true,
+        allowUniversalAccessFromFileURLs: true,
       ),
       onWebViewCreated: (controller) {
         _controller = controller;
@@ -319,6 +326,7 @@ class MermaidRenderer {
 ''';
 
   /// 生成 HTML：引本地 mermaid.min.js + 把源码放进 #graph。
+  /// script 相对 baseUrl 解析（baseUrl 指向 mermaid.min.js 所在目录）。
   static String _buildHtml(String code) {
     final escaped = _escapeHtml(code);
     return '''
@@ -326,7 +334,7 @@ class MermaidRenderer {
 <html>
 <head>
 <meta charset="utf-8">
-<script src="$_assetBase/assets/mermaid/mermaid.min.js"></script>
+<script src="mermaid.min.js"></script>
 <style>
   body { margin: 0; background: transparent; }
   #graph { display: none; }
@@ -349,7 +357,7 @@ class MermaidRenderer {
 }
 
 /// mermaid 引擎：渲染成 SVG 图。
-/// 资源 mermaid.min.js 已打包进 APK（assets/mermaid/），无需按需下载。
+/// 资源 mermaid.min.js 不打包进 APK，首次渲染时按需下载（RemoteAssetManager）。
 class MermaidCodeEngine extends CodeEngine {
   const MermaidCodeEngine();
 
