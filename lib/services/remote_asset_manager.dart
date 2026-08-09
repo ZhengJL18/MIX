@@ -71,6 +71,24 @@ class RemoteAssetManager {
           'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/pdfjs/pdf.worker.min.js',
       sizeMB: 1.1,
     ),
+    'fflate': RemoteAssetSpec(
+      name: 'fflate.min.js',
+      url:
+          'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/js/fflate.min.js',
+      sizeMB: 0.03,
+    ),
+    'sqljs': RemoteAssetSpec(
+      name: 'sql-wasm.js',
+      url:
+          'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/js/sql-wasm.js',
+      sizeMB: 0.05,
+    ),
+    'sqljs-wasm': RemoteAssetSpec(
+      name: 'sql-wasm.wasm',
+      url:
+          'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/js/sql-wasm.wasm',
+      sizeMB: 0.65,
+    ),
   };
 
   /// 进行中的下载（并发去重）。
