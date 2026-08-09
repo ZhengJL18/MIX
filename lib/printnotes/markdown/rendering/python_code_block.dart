@@ -91,6 +91,34 @@ Set<String> analyzeImports(String code) {
   return result;
 }
 
+/// 剥离 Jupyter/IPython 魔法命令与 shell 命令，让 notebook 代码能直接在
+/// Pyodide 里跑（普通 Python 解释器没有这些语法，遇到会 SyntaxError）：
+///   - `%matplotlib inline`、`%time` 等 `%` 开头的行
+///   - `!pip install ...` 等 `!` 开头的 shell 行
+///   - `%%time` 等单元魔法块（%% 开头到下一个空行/结尾）
+/// 逐行过滤保留其余代码；魔法命令不影响程序逻辑（notebook 里它们只是指令）。
+String sanitizePythonCode(String code) {
+  final lines = code.split('\n');
+  final out = <String>[];
+  var inCellMagic = false;
+  for (final raw in lines) {
+    final line = raw.trimRight();
+    final t = line.trimLeft();
+    if (t.startsWith('%%')) {
+      // 单元魔法：跳过该行及其后直到空行的内容
+      inCellMagic = true;
+      continue;
+    }
+    if (inCellMagic) {
+      if (t.isEmpty) inCellMagic = false;
+      continue;
+    }
+    if (t.startsWith('%') || t.startsWith('!')) continue; // 行魔法 / shell
+    out.add(line);
+  }
+  return out.join('\n');
+}
+
 /// 顶层包 → 依赖闭包（返回全部需要 wheel 的包名）。
 Set<String> wheelClosure(Set<String> tops) {
   final result = <String>{};
@@ -128,6 +156,7 @@ class _PythonCodeBlockWidgetState extends State<PythonCodeBlockWidget> {
   int _dlDone = 0;
   int _dlTotal = 0;
   String _dlName = '';
+  String _phase = ''; // executing 阶段的细分进度文案
 
   @override
   Widget build(BuildContext context) {
@@ -314,7 +343,7 @@ class _PythonCodeBlockWidgetState extends State<PythonCodeBlockWidget> {
                   height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2)),
               const SizedBox(width: 10),
-              Text('执行中…',
+              Text(_phase.isEmpty ? '执行中…' : '$_phase…',
                   style: TextStyle(
                       fontSize: 13, color: theme.colorScheme.primary)),
             ],
@@ -457,18 +486,25 @@ class _PythonCodeBlockWidgetState extends State<PythonCodeBlockWidget> {
     setState(() {
       _state = 'executing';
       _error = null;
+      _phase = '';
     });
     try {
-      final r = await PythonEngine.instance.run(widget.code, wheels);
+      final r = await PythonEngine.instance.run(widget.code, wheels,
+          onPhase: (p) {
+        if (!mounted) return;
+        if (p != _phase) setState(() => _phase = p);
+      });
       if (!mounted) return;
       setState(() {
         _result = r;
+        _phase = '';
         _state = (r.error == null) ? 'done' : 'error';
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _state = 'error';
+        _phase = '';
         _error = e.toString();
       });
     }
@@ -572,11 +608,18 @@ class PythonEngine {
   }
 
   /// 执行 Python 代码（串行）。wheels = 需要加载的包闭包。
-  Future<PythonRunResult> run(String code, Set<String> wheels) {
+  /// onPhase 每进入一个阶段回调一次（初始化引擎 / 加载库 / 执行代码 / 渲染图片），
+  /// 供 UI 显示当前进度。
+  Future<PythonRunResult> run(
+    String code,
+    Set<String> wheels, {
+    void Function(String phase)? onPhase,
+  }) {
     final completer = Completer<PythonRunResult>();
     _tail = _tail.then((_) async {
       try {
-        final r = await _runInternal(code, wheels);
+        final r = await _runInternal(sanitizePythonCode(code), wheels,
+            onPhase: onPhase);
         if (!completer.isCompleted) completer.complete(r);
       } catch (e) {
         if (!completer.isCompleted) {
@@ -588,13 +631,17 @@ class PythonEngine {
   }
 
   Future<PythonRunResult> _runInternal(
-      String code, Set<String> wheels) async {
+    String code,
+    Set<String> wheels, {
+    void Function(String phase)? onPhase,
+  }) async {
     await _ensureInit();
     final controller = _controller!;
 
     // 1) 加载 wheels（按拓扑序，先依赖后本体；幂等跳过已加载的）
     final toLoad = _topoOrder(wheels.difference(_loadedWheels));
     if (toLoad.isNotEmpty) {
+      onPhase?.call('加载库');
       final dir = await _appSupport;
       final paths = toLoad.map((n) {
         final w = _wheels[n]!;
