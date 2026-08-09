@@ -57,6 +57,11 @@ class LatexNode extends SpanNode {
     final isInline = attributes['isInline'] == 'true';
     final style = parentStyle ?? config.p.textStyle;
     if (content.isEmpty) return TextSpan(style: style, text: textContent);
+    // 行内公式里写了矩阵/方程组等大结构（\begin…\end 或含换行）时，
+    // 仍按块级渲染：独占一行 + 大上下间距，避免 5 行高的矩阵把文本行
+    // 撑爆、上下文字紧贴矩阵边缘（"叠在一起很难受"）。
+    final isBlockLike =
+        !isInline || content.contains('\\begin') || content.contains('\n');
     final latex = Math.tex(
       content,
       mathStyle: MathStyle.text,
@@ -70,10 +75,10 @@ class LatexNode extends SpanNode {
     );
     return WidgetSpan(
         alignment: PlaceholderAlignment.middle,
-        child: !isInline
+        child: isBlockLike
             ? Container(
                 width: double.infinity,
-                margin: const EdgeInsets.symmetric(vertical: 16),
+                margin: const EdgeInsets.symmetric(vertical: 20),
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: latex,
