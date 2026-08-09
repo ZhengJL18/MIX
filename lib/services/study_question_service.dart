@@ -81,6 +81,37 @@ class StudyQuestionService {
     return result.content ?? '';
   }
 
+  /// 更新学生画像（0_profile.md）：读旧画像 + LLM 合并本次观察 + 写回。
+  ///
+  /// [studentNote] 是 agent 观察到的本次作答表现（对/错/混淆点/进步等）。
+  /// 不做"做错才重写"的精细触发——agent 觉得有新情况就调用。
+  /// 思考强度固定中档（llm 由调用方以 effort:'medium' 构造）。
+  Future<String> updateProfile(String studentNote) async {
+    final existing = _readFileSafe(profilePath);
+    final updated = await _llmOnce(
+      '你是学生画像管理员。你维护一份学生学科画像（Markdown），'
+          '它会被出题老师读取来针对性地出题。画像要简洁、聚焦：'
+          '记录学生的强项、弱项、常错概念、混淆点、学习风格。'
+          '不要编造未观察到的内容，把新观察合并进旧画像，结构保持一致。',
+      '现有画像：\n${existing.isEmpty ? '(无画像记录)' : existing}\n\n'
+          '本次观察到的学生表现：\n$studentNote\n\n'
+          '输出更新后的完整画像（纯 Markdown，不要用代码块包裹）：',
+      maxTokens: 1500,
+    );
+    final trimmed = updated.trim();
+    if (trimmed.isEmpty) {
+      return '画像更新失败：LLM 返回空内容';
+    }
+    try {
+      final f = File(profilePath);
+      f.parent.createSync(recursive: true);
+      f.writeAsStringSync(trimmed);
+      return '画像已更新';
+    } catch (e) {
+      return '画像写入失败: $e';
+    }
+  }
+
   /// 从 LLM 输出提取 JSON（容忍被 markdown fence 包裹 / 前后杂文字）。
   Map<String, dynamic>? _extractJson(String text) {
     final start = text.indexOf('{');

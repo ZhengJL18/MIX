@@ -16,6 +16,27 @@ Future<String> Function(
 /// 知识点列表执行器：返回可用科目/知识点（带掌握度）。
 Future<String> Function()? studyListHandler;
 
+/// 画像更新执行器：把本次作答观察写进学生画像（0_profile.md）。
+Future<String> Function(String note)? studyProfileUpdateHandler;
+
+/// study_profile_update 工具 handler。
+Future<String> _handleStudyProfileUpdate(Map<String, dynamic> args,
+    [Map<String, dynamic>? kwargs]) async {
+  final handler = studyProfileUpdateHandler;
+  if (handler == null) {
+    return toolError('study_profile_update: 学习引擎未初始化');
+  }
+  final note = (args['student_note'] as String? ?? '').trim();
+  if (note.isEmpty) {
+    return toolError('study_profile_update: 缺少 student_note');
+  }
+  try {
+    return await handler(note);
+  } catch (e) {
+    return toolError('study_profile_update failed: $e');
+  }
+}
+
 /// study_list 工具 handler。
 Future<String> _handleStudyList(Map<String, dynamic> args,
     [Map<String, dynamic>? kwargs]) async {
@@ -65,6 +86,27 @@ const Map<String, dynamic> _studyListSchema = {
   },
 };
 
+const Map<String, dynamic> _studyProfileUpdateSchema = {
+  'name': 'study_profile_update',
+  'description':
+      'Update the student profile (0_profile.md) with observations from this '
+      'session. Call after explaining a question when you noticed something '
+      'worth recording: a misconception, a repeated error pattern, a concept '
+      'the student struggled with, or a clear strength. Not gated on wrong '
+      'answers — record anything meaningful. The profile feeds future question '
+      'targeting.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'student_note': {
+        'type': 'string',
+        'description': 'What the student did / was confused about / improved on',
+      },
+    },
+    'required': ['student_note'],
+  },
+};
+
 const Map<String, dynamic> _studyQuestionSchema = {
   'name': 'study_question',
   'description':
@@ -109,5 +151,13 @@ void registerStudyTools() {
     emoji: '📝',
     // 题目 JSON 有界。
     maxResultSizeChars: 6000,
+  );
+  registry.register(
+    name: 'study_profile_update',
+    toolset: 'study',
+    schema: _studyProfileUpdateSchema,
+    handler: _handleStudyProfileUpdate,
+    isAsync: true,
+    emoji: '👤',
   );
 }

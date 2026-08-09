@@ -121,6 +121,9 @@ const List<AgentWorkflow> builtinWorkflows = [
         '4) 讲解完提议下一题，但保持题间零废话，练习密度优先。\n'
         '5) 连续几题后做回合小结："N 题对 M，弱项在…，建议…"。\n'
         '6) 学生追问概念、问"为什么选B"、要求举反例 → 展开讲（开放题天然支持）。\n'
+        '7) 讲解过程中如果观察到学生的新情况（常错概念、混淆点、反复犯的'
+        '错误、明显的进步），调用 study_profile_update 记进学生画像，'
+        '画像会用于后续出题针对性。不需要"做错才记"，有值得记的就记。\n'
         '用中文。判题是机械的，你只负责讲解，不要质疑机械判题结果。',
     toolsets: ['study', 'memory', 'file', 'session_search', 'notes'],
     planGate: false,

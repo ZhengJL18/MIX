@@ -321,6 +321,15 @@ class _ChatScreenState extends State<ChatScreen> {
   StudyEngine? _studyEngine;
   StudyQuestionService? _studyQuestionService;
   final Map<String, String> _studyChoices = {}; // 题 key → 用户选项（key 兼容无 question_id 的题）。
+  // 思考强度：回答问题（聊天主循环）用用户选择，内部任务固定中档。
+  String _reasoningEffort = 'medium';
+
+  /// 思考强度显示名。
+  String _effortLabel(String e) => switch (e) {
+        'low' => '低',
+        'high' => '高',
+        _ => '中',
+      };
 
   /// 停止当前生成（ESC / 停止按钮）。
   void _stop() {
@@ -407,10 +416,15 @@ class _ChatScreenState extends State<ChatScreen> {
     registerNotesTools();
     studyListHandler = _studyList;
     studyQuestionHandler = _studyQuestion;
+    studyProfileUpdateHandler = _studyProfileUpdate;
     // 对话历史页「继续聊天」→ 切换到指定会话并加载历史。
     resumeSessionHandler = _resumeSession;
     // 设置页「检查更新」→ 复用聊天页的检查逻辑。
     checkUpdateHandler = _checkForUpdateManually;
+    // 加载持久化的思考强度（默认 medium）。
+    MIXConfig.loadReasoningEffort().then((effort) {
+      if (mounted) setState(() => _reasoningEffort = effort);
+    });
     final init = _initCwd();
     // 会话库就绪后，把当前会话历史恢复进 UI（重启 App 不再空白丢上下文）。
     init.then((_) {
@@ -908,7 +922,7 @@ class _ChatScreenState extends State<ChatScreen> {
       if (config == null) return '出题失败：AI 未配置';
       final dir = (await getApplicationDocumentsDirectory()).path;
       _studyQuestionService = StudyQuestionService(
-        llm: OpenAiLlmClient(config: config.toLlmConfig()),
+        llm: OpenAiLlmClient(config: config.toLlmConfig(effort: 'medium')),
         engine: engine,
         subjectLibraryDir: subjectLibraryPath(dir),
         profilePath: '${subjectLibraryPath(dir)}/0_profile.md',
@@ -928,6 +942,17 @@ class _ChatScreenState extends State<ChatScreen> {
       return result.json ?? '出题失败：无输出';
     } catch (e) {
       return '出题失败：$e（这不是题目，直接告诉用户出题失败并建议重试）';
+    }
+  }
+
+  /// study_profile_update 执行器：把 agent 观察到的学生表现写进画像。
+  Future<String> _studyProfileUpdate(String note) async {
+    final svc = _studyQuestionService;
+    if (svc == null) return '画像更新失败：学习引擎未初始化';
+    try {
+      return await svc.updateProfile(note);
+    } catch (e) {
+      return '画像更新失败: $e';
     }
   }
 
@@ -958,7 +983,7 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
       refine = RefinePipeline(
-        llm: OpenAiLlmClient(config: config.toLlmConfig()),
+        llm: OpenAiLlmClient(config: config.toLlmConfig(effort: 'medium')),
         trajectory: traj,
         journal: journal,
         memory: memoryStore,
@@ -1013,7 +1038,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (config == null) return null;
     final fast = await MIXConfig.loadFastConfig();
     _multiAgent = MultiAgentService(
-      llm: OpenAiLlmClient(config: config.toLlmConfig()),
+      llm: OpenAiLlmClient(config: config.toLlmConfig(effort: 'medium')),
       fastLlm: fast != null ? OpenAiLlmClient(config: fast) : null,
       isCancelled: () => _activeAgent?.isCancelled ?? false,
     );
@@ -1386,6 +1411,54 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
         title: const Text('MIX'),
         actions: [
+          // 思考强度选择器：回答问题时可选低/中/高（内部任务固定中档）。
+          PopupMenuButton<String>(
+            tooltip: '思考强度：${_effortLabel(_reasoningEffort)}',
+            onSelected: (effort) {
+              setState(() => _reasoningEffort = effort);
+              MIXConfig.saveReasoningEffort(effort);
+            },
+            itemBuilder: (_) => [
+              for (final e in const ['low', 'medium', 'high'])
+                PopupMenuItem(
+                  value: e,
+                  child: Row(
+                    children: [
+                      Icon(
+                        e == 'low'
+                            ? Icons.bolt
+                            : e == 'high'
+                                ? Icons.auto_awesome
+                                : Icons.tune,
+                        size: 18,
+                        color: _reasoningEffort == e
+                            ? context.appPalette.primary
+                            : context.appPalette.textSecondary,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(_effortLabel(e)),
+                      if (_reasoningEffort == e) ...[
+                        const SizedBox(width: 6),
+                        Icon(Icons.check,
+                            size: 14, color: context.appPalette.primary),
+                      ],
+                    ],
+                  ),
+                ),
+            ],
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6),
+              child: Icon(
+                _reasoningEffort == 'low'
+                    ? Icons.bolt
+                    : _reasoningEffort == 'high'
+                        ? Icons.auto_awesome
+                        : Icons.tune,
+                size: 20,
+                color: context.appPalette.textSecondary,
+              ),
+            ),
+          ),
           // 工作流选择器。
           PopupMenuButton<String>(
             tooltip: '工作流：${_currentWorkflow.name}',

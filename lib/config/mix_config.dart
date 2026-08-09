@@ -18,13 +18,31 @@ class MIXConfig {
   final String model;
   final String apiKey;
   final String baseUrl;
+  /// 思考强度（'low'/'medium'/'high'，默认 'medium'）。
+  final String reasoningEffort;
 
   const MIXConfig({
     required this.vendorId,
     required this.model,
     required this.apiKey,
     required this.baseUrl,
+    this.reasoningEffort = 'medium',
   });
+
+  /// 思考强度 key（SharedPreferences）。
+  static const String reasoningEffortKey = 'mix_reasoning_effort';
+
+  /// 用户选择的思考强度（默认 medium）。
+  static Future<String> loadReasoningEffort() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(reasoningEffortKey) ?? 'medium';
+  }
+
+  /// 保存思考强度。
+  static Future<void> saveReasoningEffort(String effort) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(reasoningEffortKey, effort);
+  }
 
   /// 是否完整可用。
   bool get isComplete =>
@@ -44,6 +62,8 @@ class MIXConfig {
       baseUrl: baseUrl,
       apiKey: apiKey,
       model: model,
+      // 子代理/快模型固定中档思考。
+      reasoningEffort: 'medium',
     );
   }
 
@@ -59,6 +79,7 @@ class MIXConfig {
       model: model,
       apiKey: apiKey,
       baseUrl: baseUrl,
+      reasoningEffort: prefs.getString(reasoningEffortKey) ?? 'medium',
     );
     return config.isComplete ? config : null;
   }
@@ -73,7 +94,9 @@ class MIXConfig {
   }
 
   /// 转换成 LlmConfig。
-  LlmConfig toLlmConfig() {
+  /// [effort] 可选思考强度覆盖：内部任务（出题/refine/子代理/画像）传
+  /// 'medium' 固定中档，不随用户聊天时的选择变化；省略则用 [reasoningEffort]。
+  LlmConfig toLlmConfig({String? effort}) {
     // 用 baseUrl（自定义优先），否则用 provider 预设。
     final pdef = resolveProviderFull(vendorId);
     final effectiveBaseUrl = baseUrl.isNotEmpty
@@ -83,6 +106,7 @@ class MIXConfig {
       baseUrl: effectiveBaseUrl,
       apiKey: apiKey,
       model: model,
+      reasoningEffort: effort ?? reasoningEffort,
     );
   }
 

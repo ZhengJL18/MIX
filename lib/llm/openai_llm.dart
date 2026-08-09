@@ -68,11 +68,15 @@ class LlmConfig {
   final String baseUrl; // 如 https://api.deepseek.com/v1/chat/completions
   final String apiKey;
   final String model;
+  /// 思考强度（'low'/'medium'/'high'）。null = 不传 reasoning_effort。
+  /// 支持的后端据此调整推理深度；不支持的通常忽略未知字段。
+  final String? reasoningEffort;
 
   const LlmConfig({
     required this.baseUrl,
     required this.apiKey,
     required this.model,
+    this.reasoningEffort,
   });
 }
 
@@ -113,6 +117,7 @@ class OpenAiLlmClient {
   /// [isCancelled] 每次收到 chunk 时检查，返回 true 则立即中断流式读取。
   /// [maxTokens] 可选输出上限（默认 null 不发 `max_tokens`，用 provider 默认）。
   /// [onReasoning] 可选：reasoning_content 逐块回调（DeepSeek 类先思考后输出）。
+  /// [reasoningEffort] 可选思考强度覆盖：优先于 [LlmConfig.reasoningEffort]。
   Future<LlmTurnResult> chatStream({
     required List<Map<String, dynamic>> messages,
     List<Map<String, dynamic>>? tools,
@@ -120,13 +125,16 @@ class OpenAiLlmClient {
     bool Function()? isCancelled,
     int? maxTokens,
     void Function(String delta)? onReasoning,
+    String? reasoningEffort,
   }) async {
+    final effort = reasoningEffort ?? config.reasoningEffort;
     final body = <String, dynamic>{
       'model': config.model,
       'stream': true,
       'messages': messages,
       if (tools != null && tools.isNotEmpty) 'tools': tools,
       if (maxTokens != null) 'max_tokens': maxTokens,
+      if (effort != null) 'reasoning_effort': effort,
     };
 
     final request = http.Request('POST', Uri.parse(config.baseUrl))
@@ -178,16 +186,20 @@ class OpenAiLlmClient {
 
   /// 非流式 chat.completions（流式失败的兜底，Hermes 同样提供）。
   /// [maxTokens] 可选输出上限（默认 null 不发 `max_tokens`）。
+  /// [reasoningEffort] 可选思考强度覆盖：优先于 [LlmConfig.reasoningEffort]。
   Future<LlmTurnResult> chat({
     required List<Map<String, dynamic>> messages,
     List<Map<String, dynamic>>? tools,
     int? maxTokens,
+    String? reasoningEffort,
   }) async {
+    final effort = reasoningEffort ?? config.reasoningEffort;
     final body = <String, dynamic>{
       'model': config.model,
       'messages': messages,
       if (tools != null && tools.isNotEmpty) 'tools': tools,
       if (maxTokens != null) 'max_tokens': maxTokens,
+      if (effort != null) 'reasoning_effort': effort,
     };
 
     final http.Response response;
