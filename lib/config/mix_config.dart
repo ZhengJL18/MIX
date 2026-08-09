@@ -12,8 +12,65 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../llm/openai_llm.dart';
 import 'providers.dart';
 
+/// 思考强度档位定义。
+class EffortFlow {
+  final String id;
+  final String label;
+  final int defaultValue; // 0-100
+  const EffortFlow({
+    required this.id,
+    required this.label,
+    required this.defaultValue,
+  });
+}
+
 /// MIX 配置。
 class MIXConfig {
+  /// 各流程的思考强度档位（设置页滑块 0-100，可各自独立调整）。
+  static const List<EffortFlow> effortFlows = [
+    EffortFlow(id: 'chat', label: '聊天回答', defaultValue: 50),
+    EffortFlow(id: 'plan', label: '计划生成', defaultValue: 50),
+    EffortFlow(id: 'study_question', label: '出题', defaultValue: 50),
+    EffortFlow(id: 'study_profile', label: '画像更新', defaultValue: 50),
+    EffortFlow(id: 'refine', label: '自进化建议', defaultValue: 25),
+    EffortFlow(id: 'agent', label: '多代理讨论', defaultValue: 75),
+    EffortFlow(id: 'fast_agent', label: '子代理快模型', defaultValue: 25),
+  ];
+
+  /// 滑块值(0-100) → reasoning_effort 字符串。
+  static String effortValueToKey(int v) {
+    if (v < 20) return 'minimal';
+    if (v < 40) return 'low';
+    if (v < 60) return 'medium';
+    if (v < 80) return 'high';
+    return 'max';
+  }
+
+  /// reasoning_effort 字符串 → 滑块值（兼容旧配置）。
+  static int effortKeyToValue(String k) {
+    switch (k) {
+      case 'minimal':
+        return 0;
+      case 'low':
+        return 25;
+      case 'high':
+        return 75;
+      case 'max':
+        return 100;
+      default:
+        return 50;
+    }
+  }
+
+  /// 滑块值显示名。
+  static String effortValueLabel(int v) {
+    if (v < 20) return '极低';
+    if (v < 40) return '低';
+    if (v < 60) return '中';
+    if (v < 80) return '高';
+    return '极高';
+  }
+
   final String vendorId;
   final String model;
   final String apiKey;
@@ -29,19 +86,29 @@ class MIXConfig {
     this.reasoningEffort = 'medium',
   });
 
-  /// 思考强度 key（SharedPreferences）。
+  /// 旧版思考强度 key（单值字符串，迁移用）。
   static const String reasoningEffortKey = 'mix_reasoning_effort';
 
-  /// 用户选择的思考强度（默认 medium）。
-  static Future<String> loadReasoningEffort() async {
+  /// 读取某个流程的思考强度滑块值(0-100)。
+  static Future<int> loadEffort(String flowId) async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(reasoningEffortKey) ?? 'medium';
+    final v = prefs.getInt('mix_effort_$flowId');
+    if (v != null) return v.clamp(0, 100);
+    // 兼容旧配置：chat 流程读取旧版单值字符串 key。
+    if (flowId == 'chat') {
+      final old = prefs.getString(reasoningEffortKey);
+      if (old != null) return effortKeyToValue(old);
+    }
+    for (final f in effortFlows) {
+      if (f.id == flowId) return f.defaultValue;
+    }
+    return 50;
   }
 
-  /// 保存思考强度。
-  static Future<void> saveReasoningEffort(String effort) async {
+  /// 保存某个流程的思考强度滑块值(0-100)。
+  static Future<void> saveEffort(String flowId, int value) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(reasoningEffortKey, effort);
+    await prefs.setInt('mix_effort_$flowId', value.clamp(0, 100));
   }
 
   /// 是否完整可用。
@@ -49,8 +116,8 @@ class MIXConfig {
       vendorId.isNotEmpty && model.isNotEmpty && apiKey.isNotEmpty;
 
   /// 快速模型配置（分级委派：子任务用快/便宜模型）。
-  /// 未配置时 fallback 主模型。
-  static Future<LlmConfig?> loadFastConfig() async {
+  /// 未配置时 fallback 主模型。[effort] 为 reasoning_effort 字符串。
+  static Future<LlmConfig?> loadFastConfig({String? effort}) async {
     final prefs = await SharedPreferences.getInstance();
     final apiKey = prefs.getString('fast_api_key') ?? '';
     final model = prefs.getString('fast_model') ?? '';
@@ -62,8 +129,7 @@ class MIXConfig {
       baseUrl: baseUrl,
       apiKey: apiKey,
       model: model,
-      // 子代理/快模型固定中档思考。
-      reasoningEffort: 'medium',
+      reasoningEffort: effort,
     );
   }
 
@@ -79,7 +145,7 @@ class MIXConfig {
       model: model,
       apiKey: apiKey,
       baseUrl: baseUrl,
-      reasoningEffort: prefs.getString(reasoningEffortKey) ?? 'medium',
+      reasoningEffort: effortValueToKey(await loadEffort('chat')),
     );
     return config.isComplete ? config : null;
   }

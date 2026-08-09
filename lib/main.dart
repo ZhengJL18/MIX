@@ -321,15 +321,11 @@ class _ChatScreenState extends State<ChatScreen> {
   StudyEngine? _studyEngine;
   StudyQuestionService? _studyQuestionService;
   final Map<String, String> _studyChoices = {}; // 题 key → 用户选项（key 兼容无 question_id 的题）。
-  // 思考强度：回答问题（聊天主循环）用用户选择，内部任务固定中档。
-  String _reasoningEffort = 'medium';
+  // 思考强度：聊天回答流程用滑块值(0-100)，各内部流程在设置里独立配置。
+  int _chatEffort = 50;
 
-  /// 思考强度显示名。
-  String _effortLabel(String e) => switch (e) {
-        'low' => '低',
-        'high' => '高',
-        _ => '中',
-      };
+  /// 聊天流程的 reasoning_effort 字符串（构造 LLM 时用）。
+  String get _chatEffortKey => MIXConfig.effortValueToKey(_chatEffort);
 
   /// 停止当前生成（ESC / 停止按钮）。
   void _stop() {
@@ -421,9 +417,9 @@ class _ChatScreenState extends State<ChatScreen> {
     resumeSessionHandler = _resumeSession;
     // 设置页「检查更新」→ 复用聊天页的检查逻辑。
     checkUpdateHandler = _checkForUpdateManually;
-    // 加载持久化的思考强度（默认 medium）。
-    MIXConfig.loadReasoningEffort().then((effort) {
-      if (mounted) setState(() => _reasoningEffort = effort);
+    // 加载持久化的聊天思考强度（默认中档）。
+    MIXConfig.loadEffort('chat').then((effort) {
+      if (mounted) setState(() => _chatEffort = effort);
     });
     final init = _initCwd();
     // 会话库就绪后，把当前会话历史恢复进 UI（重启 App 不再空白丢上下文）。
@@ -629,7 +625,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _running = true;
       _pendingPlan = null;
     });
-    final llm = OpenAiLlmClient(config: config.toLlmConfig());
+    final llm = OpenAiLlmClient(config: config.toLlmConfig(
+        effort: MIXConfig.effortValueToKey(await MIXConfig.loadEffort('plan'))));
     final planAgent = MIXAgent(
       llm: llm,
       systemPrompt: '你是 MIX，处于计划模式。你现在只做探索和规划，'
@@ -694,7 +691,8 @@ class _ChatScreenState extends State<ChatScreen> {
       _addAssistant('请先配置 AI');
       return;
     }
-    final llm = OpenAiLlmClient(config: config.toLlmConfig());
+    final llm = OpenAiLlmClient(
+        config: config.toLlmConfig(effort: _chatEffortKey));
     final compressor = ContextCompressor(
       contextLength: 100000,
       summarizer: (middle) async {
@@ -922,7 +920,9 @@ class _ChatScreenState extends State<ChatScreen> {
       if (config == null) return '出题失败：AI 未配置';
       final dir = (await getApplicationDocumentsDirectory()).path;
       _studyQuestionService = StudyQuestionService(
-        llm: OpenAiLlmClient(config: config.toLlmConfig(effort: 'medium')),
+        llm: OpenAiLlmClient(config: config.toLlmConfig(
+            effort: MIXConfig.effortValueToKey(
+                await MIXConfig.loadEffort('study_question')))),
         engine: engine,
         subjectLibraryDir: subjectLibraryPath(dir),
         profilePath: '${subjectLibraryPath(dir)}/0_profile.md',
@@ -950,7 +950,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final svc = _studyQuestionService;
     if (svc == null) return '画像更新失败：学习引擎未初始化';
     try {
-      return await svc.updateProfile(note);
+      final effort = MIXConfig.effortValueToKey(
+          await MIXConfig.loadEffort('study_profile'));
+      return await svc.updateProfile(note, reasoningEffort: effort);
     } catch (e) {
       return '画像更新失败: $e';
     }
@@ -983,7 +985,9 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
       refine = RefinePipeline(
-        llm: OpenAiLlmClient(config: config.toLlmConfig(effort: 'medium')),
+        llm: OpenAiLlmClient(config: config.toLlmConfig(
+            effort: MIXConfig.effortValueToKey(
+                await MIXConfig.loadEffort('refine')))),
         trajectory: traj,
         journal: journal,
         memory: memoryStore,
@@ -1036,9 +1040,13 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_multiAgent != null) return _multiAgent;
     final config = await MIXConfig.load();
     if (config == null) return null;
-    final fast = await MIXConfig.loadFastConfig();
+    final fastEffort = MIXConfig.effortValueToKey(
+        await MIXConfig.loadEffort('fast_agent'));
+    final fast = await MIXConfig.loadFastConfig(effort: fastEffort);
     _multiAgent = MultiAgentService(
-      llm: OpenAiLlmClient(config: config.toLlmConfig(effort: 'medium')),
+      llm: OpenAiLlmClient(config: config.toLlmConfig(
+          effort: MIXConfig.effortValueToKey(
+              await MIXConfig.loadEffort('agent')))),
       fastLlm: fast != null ? OpenAiLlmClient(config: fast) : null,
       isCancelled: () => _activeAgent?.isCancelled ?? false,
     );
@@ -1411,33 +1419,33 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
         title: const Text('MIX'),
         actions: [
-          // 思考强度选择器：回答问题时可选低/中/高（内部任务固定中档）。
-          PopupMenuButton<String>(
-            tooltip: '思考强度：${_effortLabel(_reasoningEffort)}',
-            onSelected: (effort) {
-              setState(() => _reasoningEffort = effort);
-              MIXConfig.saveReasoningEffort(effort);
+          // 思考强度选择器：回答问题时可选极低~极高（各内部流程在设置里独立调）。
+          PopupMenuButton<int>(
+            tooltip: '思考强度：${MIXConfig.effortValueLabel(_chatEffort)}',
+            onSelected: (v) {
+              setState(() => _chatEffort = v);
+              MIXConfig.saveEffort('chat', v);
             },
             itemBuilder: (_) => [
-              for (final e in const ['low', 'medium', 'high'])
+              for (final v in const [0, 25, 50, 75, 100])
                 PopupMenuItem(
-                  value: e,
+                  value: v,
                   child: Row(
                     children: [
                       Icon(
-                        e == 'low'
+                        v < 40
                             ? Icons.bolt
-                            : e == 'high'
+                            : v >= 80
                                 ? Icons.auto_awesome
                                 : Icons.tune,
                         size: 18,
-                        color: _reasoningEffort == e
+                        color: _chatEffort == v
                             ? context.appPalette.primary
                             : context.appPalette.textSecondary,
                       ),
                       const SizedBox(width: 8),
-                      Text(_effortLabel(e)),
-                      if (_reasoningEffort == e) ...[
+                      Text(MIXConfig.effortValueLabel(v)),
+                      if (_chatEffort == v) ...[
                         const SizedBox(width: 6),
                         Icon(Icons.check,
                             size: 14, color: context.appPalette.primary),
@@ -1449,9 +1457,9 @@ class _ChatScreenState extends State<ChatScreen> {
             child: Padding(
               padding: EdgeInsets.symmetric(horizontal: 6),
               child: Icon(
-                _reasoningEffort == 'low'
+                _chatEffort < 40
                     ? Icons.bolt
-                    : _reasoningEffort == 'high'
+                    : _chatEffort >= 80
                         ? Icons.auto_awesome
                         : Icons.tune,
                 size: 20,

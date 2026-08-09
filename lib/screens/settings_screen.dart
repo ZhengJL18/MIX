@@ -45,11 +45,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // 所有文件访问权限状态。
   bool _externalGranted = false;
   bool _checkingExternal = true;
+  // 各流程思考强度滑块值（flowId → 0-100）。
+  final Map<String, int> _efforts = {};
 
   @override
   void initState() {
     super.initState();
     _load();
+    _loadEfforts();
+  }
+
+  /// 加载各流程思考强度档位。
+  Future<void> _loadEfforts() async {
+    final values = <String, int>{};
+    for (final f in MIXConfig.effortFlows) {
+      values[f.id] = await MIXConfig.loadEffort(f.id);
+    }
+    if (mounted) setState(() => _efforts.addAll(values));
   }
 
   @override
@@ -445,6 +457,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       );
                     },
                   ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            // 思考强度：各流程独立滑块（0-100，左右拖动）。
+            Card(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+                    child: Text(
+                      '思考强度',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
+                    child: Text(
+                      '各流程的推理深度，向左更省时省 token，向右更深入',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                  for (final flow in MIXConfig.effortFlows)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 110,
+                            child: Text(flow.label,
+                                style:
+                                    const TextStyle(fontSize: 13)),
+                          ),
+                          Expanded(
+                            child: Slider(
+                              value:
+                                  (_efforts[flow.id] ?? flow.defaultValue)
+                                      .toDouble(),
+                              min: 0,
+                              max: 100,
+                              divisions: 4,
+                              label: MIXConfig.effortValueLabel(
+                                  _efforts[flow.id] ?? flow.defaultValue),
+                              onChanged: (v) {
+                                final rounded = v.round();
+                                setState(() => _efforts[flow.id] = rounded);
+                                MIXConfig.saveEffort(flow.id, rounded);
+                              },
+                            ),
+                          ),
+                          SizedBox(
+                            width: 36,
+                            child: Text(
+                              MIXConfig.effortValueLabel(
+                                  _efforts[flow.id] ?? flow.defaultValue),
+                              textAlign: TextAlign.end,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                 ],
               ),
             ),
