@@ -283,6 +283,8 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _running = false;
   // 是否显示"回到底部"悬浮按钮（用户上滑离开底部时浮现）。
   bool _showScrollToBottom = false;
+  /// 最后一条消息的 Key：可见性 = 视口底部是否已是最新消息。
+  final GlobalKey _lastMessageKey = GlobalKey();
   bool _planMode = false; // Claude Code 式 plan 模式：先出计划，批准后执行。
   String? _pendingPlan; // 待批准的计划。
   String? _pendingTask; // 待执行的任务原文（批准计划后执行用）。
@@ -1414,11 +1416,15 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollToBottom();
   }
 
+  /// 屏幕最底部是否已是最新消息：最后一条消息在视口内即视为可见。
+  /// ListView.builder 只构建可见项，lastMessageKey 有 context = 最后一条在视口内。
+  bool get _isAtLatestMessage => _lastMessageKey.currentContext != null;
+
   /// 消息列表滚动到底（流式输出时跟随最新文字）。
-  /// 仅当用户停留在底部附近才跟随；用户一旦上滑读历史就完全停止
-  /// 打扰（直到他回底/发消息），避免"疯狂划回底部"。
+  /// 仅当屏幕底部已是最新消息才跟随；一旦用户上滑（最新消息不可见）
+  /// 就完全停止打扰（直到他回底/发消息），避免"疯狂划回底部"。
   void _scrollToBottom() {
-    if (_showScrollToBottom) return; // 用户在上方读历史，不打扰。
+    if (!_isAtLatestMessage) return; // 用户在上方读历史，不打扰。
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
       final pos = _scrollController.position;
@@ -1428,12 +1434,10 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  /// 滚动监听：用户上滑离开底部时浮现"回到底部"按钮。
+  /// 滚动监听：屏幕底部不再是最后一条消息时浮现"回到底部"按钮。
   void _onChatScroll() {
     if (!_scrollController.hasClients) return;
-    final pos = _scrollController.position;
-    final nearBottom = pos.maxScrollExtent - pos.pixels < 120;
-    final shouldShow = !nearBottom;
+    final shouldShow = !_isAtLatestMessage;
     if (shouldShow != _showScrollToBottom) {
       setState(() => _showScrollToBottom = shouldShow);
     }
@@ -1695,7 +1699,11 @@ class _ChatScreenState extends State<ChatScreen> {
                     itemCount: _messages.length,
                     itemBuilder: (context, i) {
                       final m = _messages[i];
-                      return _buildMessage(m);
+                      final child = _buildMessage(m);
+                      // 最后一条消息挂 key：可见性 = 视口底部是否已是最新消息。
+                      return i == _messages.length - 1
+                          ? KeyedSubtree(key: _lastMessageKey, child: child)
+                          : child;
                     },
                   ),
                 // 上滑离开底部时浮现"回到底部"小按钮。
