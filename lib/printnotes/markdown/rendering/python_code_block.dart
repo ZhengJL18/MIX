@@ -18,6 +18,8 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import 'code_engine.dart';
+
 /// 单个 wheel 的描述（名称 = import 顶层名）。
 class PyWheel {
   const PyWheel(this.name, this.wheel, this.sizeMB, this.deps);
@@ -506,6 +508,9 @@ class PythonEngine {
   static const _githubBase =
       'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/python/wheels/';
 
+  /// wheels 下载地址（公开，供 PythonCodeEngine.requiredAssets 使用）。
+  static String get wheelsBaseUrl => _githubBase;
+
   static const _initTimeout = Duration(seconds: 60);
   static const _runTimeout = Duration(seconds: 90);
 
@@ -862,4 +867,32 @@ async function mixRun(code) {
 </html>
 ''';
   }
+}
+
+/// python 引擎：内置 Pyodide 执行，matplotlib 画图渲染成图片。
+/// 运行时 pyodide core 打包进 APK；科学计算 wheels 按需从 GitHub 仓库下载。
+class PythonCodeEngine extends CodeEngine {
+  const PythonCodeEngine();
+
+  @override
+  String get language => 'python';
+
+  @override
+  List<String> get aliases => const ['py'];
+
+  @override
+  String get displayName => 'Python (Pyodide)';
+
+  @override
+  List<EngineAsset> get requiredAssets => _wheels.entries.map((e) {
+        final w = e.value;
+        return EngineAsset(
+          name: e.key,
+          url: '${PythonEngine.wheelsBaseUrl}${w.wheel}',
+          sizeMB: w.sizeMB,
+        );
+      }).toList();
+
+  @override
+  Widget buildWidget(String code) => PythonCodeBlockWidget(code: code);
 }

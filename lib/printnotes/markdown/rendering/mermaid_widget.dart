@@ -16,6 +16,8 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:visibility_detector/visibility_detector.dart';
 
+import 'code_engine.dart';
+
 /// mermaid 代码块 → 渲染后的 SVG 图。
 class MermaidWidget extends StatefulWidget {
   const MermaidWidget({super.key, required this.code});
@@ -344,4 +346,25 @@ class MermaidRenderer {
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;');
   }
+}
+
+/// mermaid 引擎：渲染成 SVG 图。
+/// 资源 mermaid.min.js 已打包进 APK（assets/mermaid/），无需按需下载。
+class MermaidCodeEngine extends CodeEngine {
+  const MermaidCodeEngine();
+
+  @override
+  String get language => 'mermaid';
+
+  @override
+  List<String> get aliases => const [];
+
+  @override
+  String get displayName => 'Mermaid 图表';
+
+  @override
+  List<EngineAsset> get requiredAssets => const [];
+
+  @override
+  Widget buildWidget(String code) => MermaidWidget(code: code);
 }

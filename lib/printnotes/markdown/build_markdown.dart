@@ -29,6 +29,7 @@ import 'package:mix/printnotes/markdown/rendering/note_tags.dart';
 
 import 'package:mix/printnotes/markdown/link_handler.dart';
 import 'package:mix/printnotes/markdown/rendering/python_code_block.dart';
+import 'package:mix/printnotes/markdown/rendering/code_engine.dart';
 
 MarkdownConfig theMarkdownConfigs(
   BuildContext context, {
@@ -46,15 +47,17 @@ MarkdownConfig theMarkdownConfigs(
   final userCodeHighlight = context.watch<ThemeProvider>().codeHighlight;
 
   codeWrapper(child, text, language) {
-    // mermaid 代码块 → 渲染成图（Obsidian 原生行为）。
-    if (language.toLowerCase() == 'mermaid') {
-      return MermaidWidget(code: text);
+    // 注册内置引擎（幂等：重复注册同名会覆盖，但无害）。
+    // 新增语言 = 新建 CodeEngine 实现 + 在这里注册一行（或引擎内部自注册）。
+    CodeEngineRegistry
+      ..register(const MermaidCodeEngine())
+      ..register(const PythonCodeEngine());
+    // 命中已注册引擎（mermaid → 图，python → Pyodide 执行）→ 交给引擎。
+    final engine = CodeEngineRegistry.engineFor(language);
+    if (engine != null) {
+      return engine.buildWidget(text);
     }
-    // python 代码块 → 内置 Pyodide 执行，matplotlib 画图渲染成图片。
-    final lang = language.toLowerCase();
-    if (lang == 'python' || lang == 'py') {
-      return PythonCodeBlockWidget(code: text);
-    }
+    // 其他语言 → 普通代码块（语法高亮 + 复制按钮）。
     return CodeWrapperWidget(child, text, language,
         hideCodeButtons: hideCodeButtons);
   }
