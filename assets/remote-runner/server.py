@@ -57,12 +57,38 @@ _lock = threading.Lock()
 os.makedirs(IMG_DIR, exist_ok=True)
 
 
+def _strip_jupyter(code):
+    """剥离 Jupyter 魔法/命令，避免纯 Python 解释器报 SyntaxError。
+
+    策略：假装看不见——不执行魔法，只是让它们不炸：
+      - `%magic` 行内魔法（如 %matplotlib inline）→ 丢弃该行
+      - `%%cell_magic` 单元魔法 → 丢弃首行，body（后续行）保留
+      - `!shell` 系统命令 → 丢弃该行
+      - `plt.plot?` 帮助查询 → 丢弃该行
+    """
+    lines = []
+    for line in code.split("\n"):
+        s = line.strip()
+        if not s:
+            lines.append(line)
+            continue
+        if s.startswith("%") or s.startswith("!"):
+            continue
+        # 帮助查询：整行由标识符/点/括号/逗号/运算符构成，以 ? 结尾。
+        if re.match(r"^[\w\s\.\(\)\[\],=+\-*/<>:]*\?\s*$", line):
+            continue
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def wrap_python(code):
     """注入 matplotlib Agg 后端；结尾自动把画出的图存成 PNG。
 
     对用户代码零侵入：教材代码里 plt.show() 在 Agg 下是 no-op，
     执行完后把当前所有 figure 保存为 /tmp/mix_imgs/fig_N.png。
+    先剥离 Jupyter 魔法（%matplotlib inline 等在纯 Python 里是 SyntaxError）。
     """
+    code = _strip_jupyter(code)
     if "matplotlib" not in code and "plt." not in code:
         return code
     prologue = (
