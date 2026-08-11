@@ -28,78 +28,78 @@ List<ToolbarConfigItem> defaultToolbarList = [
 final Map<String, Map<String, dynamic>> toolbarReference = {
   'toolbar_view_item': {
     'icon': FaIcon(FontAwesomeIcons.eye),
-    'text': 'Preview',
+    'text': '预览',
   },
   'toolbar_undo_redo_actions': {
     'icon': FaIcon(FontAwesomeIcons.arrowRotateLeft),
-    'text': 'Undo/Redo',
+    'text': '撤销/重做',
   },
   'toolbar_selection_action': {
     'icon': FaIcon(FontAwesomeIcons.textWidth),
-    'text': 'Select current line',
+    'text': '选择当前行',
   },
   'toolbar_bold_action': {
     'icon': FaIcon(FontAwesomeIcons.bold),
-    'text': 'Make text bold',
+    'text': '加粗文字',
   },
   'toolbar_italic_action': {
     'icon': FaIcon(FontAwesomeIcons.italic),
-    'text': 'Make text italic',
+    'text': '斜体文字',
   },
   'toolbar_highlight_action': {
     'icon': FaIcon(FontAwesomeIcons.highlighter),
-    'text': 'Highlight text',
+    'text': '高亮文字',
   },
   'toolbar_strikethrough_action': {
     'icon': FaIcon(FontAwesomeIcons.strikethrough),
-    'text': 'Strikethrough text',
+    'text': '删除线',
   },
   'toolbar_heading_action': {
     'icon': FaIcon(FontAwesomeIcons.heading),
-    'text': 'Insert Heading',
+    'text': '插入标题',
   },
   'toolbar_indent_action': {
     'icon': Icon(Icons.format_indent_increase),
-    'text': 'Indent line',
+    'text': '增加缩进',
   },
   'toolbar_unindent_action': {
     'icon': Icon(Icons.format_indent_decrease),
-    'text': 'Unindent line',
+    'text': '减少缩进',
   },
   'toolbar_unordered_list_action': {
     'icon': FaIcon(FontAwesomeIcons.listUl),
-    'text': 'Unordered list',
+    'text': '无序列表',
   },
   'toolbar_checkbox_list_action': {
     'icon': FaIcon(FontAwesomeIcons.listCheck),
-    'text': 'Checkboxes',
+    'text': '复选框',
   },
   'toolbar_underline_action': {
     'icon': FaIcon(FontAwesomeIcons.underline),
-    'text': 'Underline text',
+    'text': '下划线',
   },
   'toolbar_insert_table': {
     'icon': FaIcon(FontAwesomeIcons.table),
-    'text': 'Insert table',
+    'text': '插入表格',
   },
   'toolbar_link_action': {
     'icon': FaIcon(FontAwesomeIcons.link),
-    'text': 'Insert hyperlink',
+    'text': '插入链接',
   },
   'toolbar_image_action': {
     'icon': FaIcon(FontAwesomeIcons.image),
-    'text': 'Insert image',
+    'text': '插入图片',
   },
   'toolbar_blockquote_action': {
     'icon': FaIcon(FontAwesomeIcons.quoteLeft),
-    'text': 'Blockquote',
+    'text': '引用块',
   },
   'toolbar_code_action': {
     'icon': FaIcon(FontAwesomeIcons.code),
-    'text': 'Code syntax/font',
+    'text': '代码语法/字体',
   },
   'toolbar_line_action': {
     'icon': FaIcon(FontAwesomeIcons.rulerHorizontal),
-    'text': 'Add horizontal line',
+    'text': '插入分隔线',
   },
 };

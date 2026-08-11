@@ -39,7 +39,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_view_item': ToolbarItem(
         key: const ValueKey<String>("toolbar_view_item"),
         icon: FaIcon(FontAwesomeIcons.eye),
-        tooltip: 'Show/Hide markdown preview',
+        tooltip: '显示/隐藏 Markdown 预览',
         onPressedButton: () {
           onPreviewChanged.call();
         },
@@ -54,7 +54,7 @@ class MarkdownToolbar extends StatelessWidget {
               ToolbarItem(
                 key: const ValueKey<String>("toolbar_undo_action"),
                 icon: FaIcon(FontAwesomeIcons.arrowRotateLeft),
-                tooltip: 'Undo previous action',
+                tooltip: '撤销上一步',
                 onPressedButton:
                     value.canUndo ? () => undoController.undo() : null,
               ),
@@ -62,7 +62,7 @@ class MarkdownToolbar extends StatelessWidget {
               ToolbarItem(
                 key: const ValueKey<String>("toolbar_redo_action"),
                 icon: FaIcon(FontAwesomeIcons.arrowRotateRight),
-                tooltip: 'Redo previous action',
+                tooltip: '重做上一步',
                 onPressedButton:
                     value.canRedo ? () => undoController.redo() : null,
               ),
@@ -74,7 +74,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_selection_action': ToolbarItem(
         key: const ValueKey<String>("toolbar_selection_action"),
         icon: FaIcon(FontAwesomeIcons.textWidth),
-        tooltip: 'Select single line',
+        tooltip: '选择单行',
         onPressedButton: () {
           toolbar.selectSingleLine();
         },
@@ -83,7 +83,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_bold_action': ToolbarItem(
         key: const ValueKey<String>("toolbar_bold_action"),
         icon: FaIcon(FontAwesomeIcons.bold),
-        tooltip: 'Make text bold',
+        tooltip: '加粗文字',
         onPressedButton: () {
           toolbar.action("**", "**");
         },
@@ -92,7 +92,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_italic_action': ToolbarItem(
         key: const ValueKey<String>("toolbar_italic_action"),
         icon: FaIcon(FontAwesomeIcons.italic),
-        tooltip: 'Make text italic',
+        tooltip: '斜体文字',
         onPressedButton: () {
           toolbar.action("_", "_");
         },
@@ -101,7 +101,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_highlight_action': ToolbarItem(
         key: const ValueKey<String>("toolbar_highlight_action"),
         icon: FaIcon(FontAwesomeIcons.highlighter),
-        tooltip: 'Highlight text',
+        tooltip: '高亮文字',
         onPressedButton: () {
           toolbar.action("==", "==");
         },
@@ -110,7 +110,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_strikethrough_action': ToolbarItem(
         key: const ValueKey<String>("toolbar_strikethrough_action"),
         icon: FaIcon(FontAwesomeIcons.strikethrough),
-        tooltip: 'Strikethrough text',
+        tooltip: '删除线',
         onPressedButton: () {
           toolbar.action("~~", "~~");
         },
@@ -120,25 +120,25 @@ class MarkdownToolbar extends StatelessWidget {
         key: const ValueKey<String>("toolbar_heading_action"),
         icon: FaIcon(FontAwesomeIcons.heading),
         isExpandable: true,
-        tooltip: 'Insert Heading',
+        tooltip: '插入标题',
         expandableBackground: expandableBackground,
         items: [
           ToolbarItem(
             key: const ValueKey<String>("h1"),
             icon: "H1",
-            tooltip: 'Insert Heading 1',
+            tooltip: '插入标题 1',
             onPressedButton: () => toolbar.action("# ", ""),
           ),
           ToolbarItem(
             key: const ValueKey<String>("h2"),
             icon: "H2",
-            tooltip: 'Insert Heading 2',
+            tooltip: '插入标题 2',
             onPressedButton: () => toolbar.action("## ", ""),
           ),
           ToolbarItem(
             key: const ValueKey<String>("h3"),
             icon: "H3",
-            tooltip: 'Insert Heading 3',
+            tooltip: '插入标题 3',
             onPressedButton: () => toolbar.action("### ", ""),
           ),
         ],
@@ -147,7 +147,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_indent_action': ToolbarItem(
         key: const ValueKey<String>("toolbar_indent_action"),
         icon: Icons.format_indent_increase,
-        tooltip: 'Indent line',
+        tooltip: '增加缩进',
         onPressedButton: () {
           toolbar.action("  ", "");
         },
@@ -156,7 +156,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_unindent_action': ToolbarItem(
         key: const ValueKey<String>("toolbar_unindent_action"),
         icon: Icons.format_indent_decrease,
-        tooltip: 'Unindent',
+        tooltip: '减少缩进',
         onPressedButton: () {
           toolbar.action("", "  ");
         },
@@ -165,7 +165,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_unordered_list_action': ToolbarItem(
         key: const ValueKey<String>("toolbar_unordered_list_action"),
         icon: FaIcon(FontAwesomeIcons.listUl),
-        tooltip: 'Unordered list',
+        tooltip: '无序列表',
         onPressedButton: () {
           toolbar.action("- ", "");
         },
@@ -180,7 +180,7 @@ class MarkdownToolbar extends StatelessWidget {
           ToolbarItem(
             key: const ValueKey<String>("checkbox"),
             icon: FaIcon(FontAwesomeIcons.solidSquareCheck),
-            tooltip: 'Checked checkbox',
+            tooltip: '勾选复选框',
             onPressedButton: () {
               toolbar.action("- [x] ", "");
             },
@@ -188,7 +188,7 @@ class MarkdownToolbar extends StatelessWidget {
           ToolbarItem(
             key: const ValueKey<String>("uncheckbox"),
             icon: FaIcon(FontAwesomeIcons.square),
-            tooltip: 'Unchecked checkbox',
+            tooltip: '取消勾选',
             onPressedButton: () {
               toolbar.action("- [ ] ", "");
             },
@@ -199,7 +199,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_underline_action': ToolbarItem(
         key: const ValueKey<String>("toolbar_underline_action"),
         icon: FaIcon(FontAwesomeIcons.underline),
-        tooltip: 'Underline text',
+        tooltip: '下划线',
         onPressedButton: () {
           toolbar.action("__", "__");
         },
@@ -208,7 +208,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_insert_table': ToolbarItem(
         key: const ValueKey<String>('toolbar_insert_table'),
         icon: FaIcon(FontAwesomeIcons.table),
-        tooltip: 'Insert Table',
+        tooltip: '插入表格',
         onPressedButton: () async {
           if (toolbar.hasSelection) {
             toolbar.action("| ", " |");
@@ -221,7 +221,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_link_action': ToolbarItem(
         key: const ValueKey<String>("toolbar_link_action"),
         icon: FaIcon(FontAwesomeIcons.link),
-        tooltip: 'Add hyperlink',
+        tooltip: '添加链接',
         onPressedButton: () async {
           if (toolbar.hasSelection) {
             toolbar.action("[enter link description here](", ")");
@@ -235,7 +235,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_image_action': ToolbarItem(
         key: const ValueKey<String>("toolbar_image_action"),
         icon: FaIcon(FontAwesomeIcons.image),
-        tooltip: 'Add image',
+        tooltip: '添加图片',
         onPressedButton: () async {
           if (toolbar.hasSelection) {
             toolbar.action("![enter image description here](", ")");
@@ -252,7 +252,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_blockquote_action': ToolbarItem(
         key: const ValueKey<String>("toolbar_blockquote_action"),
         icon: FaIcon(FontAwesomeIcons.quoteLeft),
-        tooltip: 'Blockquote',
+        tooltip: '引用块',
         onPressedButton: () {
           toolbar.action("> ", "");
         },
@@ -261,7 +261,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_code_action': ToolbarItem(
         key: const ValueKey<String>("toolbar_code_action"),
         icon: FaIcon(FontAwesomeIcons.code),
-        tooltip: 'Code syntax/font',
+        tooltip: '代码语法/字体',
         onPressedButton: () {
           toolbar.action("`", "`");
         },
@@ -270,7 +270,7 @@ class MarkdownToolbar extends StatelessWidget {
       'toolbar_line_action': ToolbarItem(
         key: const ValueKey<String>("toolbar_line_action"),
         icon: FaIcon(FontAwesomeIcons.rulerHorizontal),
-        tooltip: 'Add line',
+        tooltip: '插入行',
         onPressedButton: () {
           toolbar.action("___", "");
         },

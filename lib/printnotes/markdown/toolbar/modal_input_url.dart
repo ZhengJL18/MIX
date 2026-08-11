@@ -47,7 +47,7 @@ class ModalInputUrl extends StatelessWidget {
               autofocus: true,
               cursorRadius: const Radius.circular(20),
               decoration: const InputDecoration.collapsed(
-                hintText: "Input your url.",
+                hintText: "输入你的网址。",
               ),
               style: const TextStyle(
                 fontSize: 16,

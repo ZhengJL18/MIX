@@ -70,7 +70,7 @@ class _TrashArchiveScreenState extends State<TrashArchiveScreen> {
                     Icons.unarchive,
                     color: Theme.of(sheetContext).colorScheme.secondary,
                   ),
-                  title: const Text('Unarchive'),
+                  title: const Text('取消归档'),
                   onTap: () {
                     Navigator.pop(sheetContext);
                     ItemArchiveHandler(context).handleUnarchiveItem(item,
@@ -83,7 +83,7 @@ class _TrashArchiveScreenState extends State<TrashArchiveScreen> {
                     Icons.delete,
                     color: Colors.red,
                   ),
-                  title: const Text('Delete'),
+                  title: const Text('删除'),
                   onTap: () {
                     Navigator.pop(sheetContext);
                     ItemDeletionHandler(context).showTrashConfirmation(item,
@@ -96,7 +96,7 @@ class _TrashArchiveScreenState extends State<TrashArchiveScreen> {
                     Icons.unarchive,
                     color: Theme.of(sheetContext).colorScheme.secondary,
                   ),
-                  title: const Text('Restore'),
+                  title: const Text('恢复'),
                   onTap: () {
                     Navigator.pop(sheetContext);
                     ItemDeletionHandler(context).handleRestoringDeletedItem(
@@ -110,7 +110,7 @@ class _TrashArchiveScreenState extends State<TrashArchiveScreen> {
                     Icons.delete,
                     color: Colors.red,
                   ),
-                  title: const Text('Permanently Delete'),
+                  title: const Text('彻底删除'),
                   onTap: () {
                     Navigator.pop(sheetContext);
                     ItemDeletionHandler(context)
@@ -211,7 +211,7 @@ class _TrashArchiveScreenState extends State<TrashArchiveScreen> {
       ),
       body: _hiddenItems.isEmpty
           ? const Center(
-              child: Text('This folder is empty'),
+              child: Text('此文件夹为空'),
             )
           : ListView.builder(
               itemCount: _hiddenItems.length,

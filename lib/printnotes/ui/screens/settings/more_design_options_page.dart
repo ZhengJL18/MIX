@@ -41,9 +41,9 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
         saveStateList.add(
             DropdownMenuItem(value: imgPath, child: Text(basename(imgPath))));
       }
-      saveStateList.add(DropdownMenuItem(value: null, child: Text('No Image')));
+      saveStateList.add(DropdownMenuItem(value: null, child: Text('无图片')));
       saveStateList.add(
-          DropdownMenuItem(value: 'add new image', child: Text('+ Add Image')));
+          DropdownMenuItem(value: 'add new image', child: Text('+ 添加图片')));
     }
     setState(() {
       _bgImgDropItemList = saveStateList;
@@ -56,7 +56,7 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
     return await showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Delete Images'),
+        title: Text('删除图片'),
         content: StatefulBuilder(
           builder: (context, setState) => SizedBox(
             height: double.maxFinite,
@@ -100,7 +100,7 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
               foregroundColor: Theme.of(context).colorScheme.onSecondary,
             ),
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Close'),
+            child: const Text('关闭'),
           ),
         ],
       ),
@@ -139,7 +139,7 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
       appBar: AppBarDragWrapper(
         child: AppBar(
           centerTitle: true,
-          title: const Text('More Design Options'),
+          title: const Text('更多设计选项'),
         ),
       ),
       body: CenteredPageWrapper(
@@ -151,7 +151,7 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
                 : ListView(
                     children: [
                       sectionTitle(
-                        'Home Screen',
+                        '主屏幕',
                         Theme.of(context).colorScheme.secondary,
                         padding: 10,
                       ),
@@ -170,14 +170,14 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
                               )
                             : null,
                         leading: Icon(Icons.image),
-                        title: 'Background Image',
+                        title: '背景图片',
                         subtitle: isScreenLarge || _bgImgDropItemList.isEmpty
-                            ? Text('Replace background color with image')
+                            ? Text('用图片替换背景颜色')
                             : DropdownButton(
                                 items: _bgImgDropItemList,
                                 value: watchCustomizations.bgImagePath,
                                 isExpanded: true,
-                                hint: Text('Select Image'),
+                                hint: Text('选择图片'),
                                 onChanged: (value) {
                                   if (value is String?) {
                                     if (value == 'add new image') {
@@ -198,7 +198,7 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
                                     ? DropdownButton(
                                         items: _bgImgDropItemList,
                                         value: watchCustomizations.bgImagePath,
-                                        hint: Text('Select Image'),
+                                        hint: Text('选择图片'),
                                         onChanged: (value) {
                                           if (value is String?) {
                                             if (value == 'add new image') {
@@ -216,14 +216,14 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
                       if (_bgImgDropItemList.isNotEmpty)
                         MenuTile(
                           leading: Icon(Icons.delete),
-                          title: 'Delete Image',
+                          title: '删除图片',
                           trailing: Icon(Icons.chevron_right),
                           onTap: () => delImgDialog(context),
                         ),
                       if (watchCustomizations.bgImagePath != null)
                         MenuTile(
                           leading: Icon(Icons.opacity),
-                          title: 'Background Image Opacity',
+                          title: '背景图片透明度',
                           trailing: Text(
                               '${watchCustomizations.bgImageOpacity * 100}%'),
                           subtitle: Slider(
@@ -238,37 +238,37 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
                       if (watchCustomizations.bgImagePath != null)
                         MenuTile(
                           leading: Icon(Icons.format_shapes),
-                          title: 'Background Image fit',
+                          title: '背景图片适应方式',
                           trailing: DropdownButton(
                             value: watchCustomizations.bgImageFit,
                             items: [
                               DropdownMenuItem(
                                 value: 'cover',
-                                child: Text('Cover'),
+                                child: Text('覆盖'),
                               ),
                               DropdownMenuItem(
                                 value: 'contain',
-                                child: Text('Contain'),
+                                child: Text('包含'),
                               ),
                               DropdownMenuItem(
                                 value: 'fill',
-                                child: Text('Fill'),
+                                child: Text('填充'),
                               ),
                               DropdownMenuItem(
                                 value: 'scaleDown',
-                                child: Text('Scale Down'),
+                                child: Text('缩小'),
                               ),
                               DropdownMenuItem(
                                 value: 'fitHeight',
-                                child: Text('Fit Height'),
+                                child: Text('适应高度'),
                               ),
                               DropdownMenuItem(
                                 value: 'fitWidth',
-                                child: Text('Fit Width'),
+                                child: Text('适应宽度'),
                               ),
                               DropdownMenuItem(
                                 value: 'none',
-                                child: Text('None'),
+                                child: Text('无'),
                               ),
                             ],
                             onChanged: (fit) {
@@ -281,25 +281,25 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
                       if (watchCustomizations.bgImagePath != null)
                         MenuTile(
                           leading: Icon(Icons.loop),
-                          title: 'Background Image Repeat',
+                          title: '背景图片重复',
                           trailing: DropdownButton(
                             value: watchCustomizations.bgImageRepeat,
                             items: [
                               DropdownMenuItem(
                                 value: 'noRepeat',
-                                child: Text('No Repeat'),
+                                child: Text('不重复'),
                               ),
                               DropdownMenuItem(
                                 value: 'repeat',
-                                child: Text('Repeat'),
+                                child: Text('重复'),
                               ),
                               DropdownMenuItem(
                                 value: 'repeatX',
-                                child: Text('Repeat X-Axis'),
+                                child: Text('水平重复'),
                               ),
                               DropdownMenuItem(
                                 value: 'repeatY',
-                                child: Text('Repeat Y-Axis'),
+                                child: Text('垂直重复'),
                               ),
                             ],
                             onChanged: (repeat) {
@@ -311,7 +311,7 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
                         ),
                       MenuTile(
                         leading: Icon(Icons.opacity),
-                        title: 'Note Opacity',
+                        title: '笔记卡片透明度',
                         trailing: Text(
                             '${watchCustomizations.noteTileOpacity * 100}%'),
                         subtitle: Slider(
@@ -325,7 +325,7 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
                       ),
                       MenuTile(
                         leading: const Icon(Icons.list_alt_rounded),
-                        title: 'Note Text Preview Amount',
+                        title: '笔记文字预览长度',
                         subtitle: Slider(
                           value: watchCustomizations.previewLength.toDouble(),
                           min: 0,
@@ -340,23 +340,23 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
                         isLast: true,
                       ),
                       sectionTitle(
-                        'Grid/List View Specific',
+                        '网格/列表视图',
                         Theme.of(context).colorScheme.secondary,
                         padding: 10,
                       ),
                       MenuTile(
                         leading: Icon(Icons.interests),
-                        title: 'Note Tile Shape',
+                        title: '笔记卡片形状',
                         trailing: DropdownButton(
                           value: watchCustomizations.noteTileShape,
                           items: [
                             DropdownMenuItem(
                               value: 'round',
-                              child: Text('Round'),
+                              child: Text('圆角'),
                             ),
                             DropdownMenuItem(
                               value: 'square',
-                              child: Text('Square'),
+                              child: Text('方形'),
                             ),
                           ],
                           onChanged: (shape) {
@@ -369,7 +369,7 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
                       ),
                       MenuTile(
                         leading: Icon(Icons.padding),
-                        title: 'Note Tile Text Padding',
+                        title: '笔记卡片内边距',
                         trailing:
                             Text('${watchCustomizations.noteTilePadding} px'),
                         subtitle: Slider(
@@ -383,7 +383,7 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
                       ),
                       MenuTile(
                         leading: Icon(Icons.straighten),
-                        title: 'Note Tile Spacing',
+                        title: '笔记卡片间距',
                         trailing:
                             Text('${watchCustomizations.noteTileSpacing} px'),
                         subtitle: Slider(
@@ -397,13 +397,13 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
                         isLast: true,
                       ),
                       sectionTitle(
-                        'Note Editor',
+                        '笔记编辑器',
                         Theme.of(context).colorScheme.secondary,
                         padding: 10,
                       ),
                       MenuTile(
                         leading: Icon(Icons.padding_outlined),
-                        title: 'Note Editor Padding',
+                        title: '笔记编辑器内边距',
                         trailing:
                             Text('${watchCustomizations.noteEditorPadding} px'),
                         subtitle: Slider(
@@ -430,10 +430,10 @@ class _MoreDesignOptionsPageState extends State<MoreDesignOptionsPage> {
   String sliderLabels(int value) {
     String valString = value.toString();
     if (value == 0) {
-      return 'Title Only: $valString';
+      return '仅标题: $valString';
     }
     if (value == 100) {
-      return 'Default: $valString';
+      return '默认: $valString';
     }
     return valString;
   }

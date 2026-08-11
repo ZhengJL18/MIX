@@ -36,7 +36,7 @@ class ImageViewScreen extends StatelessWidget {
                   PopupMenuItem(
                     child: ListTile(
                       leading: const Icon(Icons.share),
-                      title: Text('Share'),
+                      title: Text('分享'),
                       onTap: () {
                         SharePlus.instance.share(
                             ShareParams(files: [XFile(imageUri.toFilePath())]));

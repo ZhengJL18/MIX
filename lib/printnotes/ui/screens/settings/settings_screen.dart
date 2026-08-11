@@ -83,15 +83,15 @@ class SettingsScreen extends StatelessWidget {
                     value: context.watch<SettingsProvider>().sortOrder,
                     items: const [
                       DropdownMenuItem(
-                          value: 'default', child: Text('Default Order')),
+                          value: 'default', child: Text('默认排序')),
                       DropdownMenuItem(
-                          value: 'titleAsc', child: Text('Title (Asc)')),
+                          value: 'titleAsc', child: Text('标题（升序）')),
                       DropdownMenuItem(
-                          value: 'titleDsc', child: Text('Title (Desc)')),
+                          value: 'titleDsc', child: Text('标题（降序）')),
                       DropdownMenuItem(
-                          value: 'lastModAsc', child: Text('Last Mod (Asc)')),
+                          value: 'lastModAsc', child: Text('最近修改（升序）')),
                       DropdownMenuItem(
-                          value: 'lastModDsc', child: Text('Last Mod (Desc)')),
+                          value: 'lastModDsc', child: Text('最近修改（降序）')),
                     ],
                     onChanged: (value) {
                       if (value != null) {
@@ -104,13 +104,13 @@ class SettingsScreen extends StatelessWidget {
                 leading: const Icon(Icons.folder_copy_outlined),
                 title: '文件夹置顶',
                 subtitle: MenuTile.subtitleText(context,
-                    text: 'Display folders above or below files'),
+                    text: '文件夹显示在文件上方或下方'),
                 trailing: DropdownButton(
                     value: context.watch<SettingsProvider>().folderPriority,
                     items: const [
-                      DropdownMenuItem(value: 'above', child: Text('Above')),
-                      DropdownMenuItem(value: 'none', child: Text('None')),
-                      DropdownMenuItem(value: 'below', child: Text('Below')),
+                      DropdownMenuItem(value: 'above', child: Text('上方')),
+                      DropdownMenuItem(value: 'none', child: Text('无')),
+                      DropdownMenuItem(value: 'below', child: Text('下方')),
                     ],
                     onChanged: (value) {
                       if (value != null) {
@@ -132,9 +132,9 @@ class SettingsScreen extends StatelessWidget {
                 trailing: DropdownButton(
                     value: context.watch<SettingsProvider>().layout,
                     items: const [
-                      DropdownMenuItem(value: 'grid', child: Text('Grid View')),
-                      DropdownMenuItem(value: 'list', child: Text('List View')),
-                      DropdownMenuItem(value: 'tree', child: Text('Tree View')),
+                      DropdownMenuItem(value: 'grid', child: Text('网格视图')),
+                      DropdownMenuItem(value: 'list', child: Text('列表视图')),
+                      DropdownMenuItem(value: 'tree', child: Text('树形视图')),
                     ],
                     onChanged: (value) {
                       if (value != null) {

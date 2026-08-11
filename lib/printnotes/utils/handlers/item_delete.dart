@@ -18,20 +18,20 @@ class ItemDeletionHandler {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Move To Trash?'),
+        title: const Text('移到回收站？'),
         content: Text(
-            'Are you sure you want to trash "${path.basename(item.path)}"${item is Directory ? " folder" : ""}?'),
+            '确定要把"${path.basename(item.path)}"${item is Directory ? "文件夹" : ""}移到回收站吗？'),
         actions: [
           TextButton(
             child: Text(
-              'Cancel',
+              '取消',
               style: TextStyle(color: Theme.of(context).colorScheme.secondary),
             ),
             onPressed: () => Navigator.of(context).pop(),
           ),
           TextButton(
             child: Text(
-              'Trash',
+              '移到回收站',
               style: TextStyle(color: Theme.of(context).colorScheme.secondary),
             ),
             onPressed: () {
@@ -56,13 +56,13 @@ class ItemDeletionHandler {
         onComplete?.call();
 
         customSnackBar(
-                '"${path.basename(item.path)}"${item is Directory ? " folder" : ""} was moved to the trash bin',
+                '"${path.basename(item.path)}"${item is Directory ? "文件夹" : ""}已移到回收站',
                 type: 'info')
             .show(context);
       }
     } catch (e) {
       if (context.mounted) {
-        customSnackBar('Error deleting "${path.basename(item.path)}": $e',
+        customSnackBar('删除"${path.basename(item.path)}"失败：$e',
                 type: 'error')
             .show(context);
       }
@@ -74,20 +74,20 @@ class ItemDeletionHandler {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Confirm Deletion'),
+        title: const Text('确认删除'),
         content: Text(
-            'Are you sure you want to delete "${path.basename(item.path)}"${item is Directory ? " folder" : ""} forever?'),
+            '确定要彻底删除"${path.basename(item.path)}"${item is Directory ? "文件夹" : ""}吗？'),
         actions: [
           TextButton(
             child: Text(
-              'Cancel',
+              '取消',
               style: TextStyle(color: Theme.of(context).colorScheme.secondary),
             ),
             onPressed: () => Navigator.of(context).pop(),
           ),
           TextButton(
             child: Text(
-              'Delete',
+              '删除',
               style: TextStyle(color: Theme.of(context).colorScheme.secondary),
             ),
             onPressed: () {
@@ -112,14 +112,14 @@ class ItemDeletionHandler {
         onComplete?.call();
 
         customSnackBar(
-                '"${path.basename(item.path)}"${item is Directory ? " folder" : ""} was deleted',
+                '"${path.basename(item.path)}"${item is Directory ? "文件夹" : ""}已删除',
                 type: 'info')
             .show(context);
       }
     } catch (e) {
       if (context.mounted) {
         customSnackBar(
-                'Error permanently deleting "${path.basename(item.path)}"${item is Directory ? " folder" : ""}: $e',
+                '彻底删除"${path.basename(item.path)}"${item is Directory ? "文件夹" : ""}失败：$e',
                 type: 'error')
             .show(context);
       }
@@ -132,7 +132,7 @@ class ItemDeletionHandler {
       await StorageSystem.restoreDeletedItem(item.path);
       if (context.mounted) {
         customSnackBar(
-                '"${path.basename(item.path)}"${item is Directory ? " folder" : ""} was restored successfully',
+                '"${path.basename(item.path)}"${item is Directory ? "文件夹" : ""}已成功恢复',
                 type: 'success')
             .show(context);
 
@@ -144,7 +144,7 @@ class ItemDeletionHandler {
     } catch (e) {
       if (context.mounted) {
         customSnackBar(
-                'Error restoring deleted "${path.basename(item.path)}"${item is Directory ? " folder" : ""}: $e',
+                '恢复"${path.basename(item.path)}"${item is Directory ? "文件夹" : ""}失败：$e',
                 type: 'error')
             .show(context);
       }
@@ -156,20 +156,20 @@ class ItemDeletionHandler {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Move All Trash?'),
+        title: const Text('全部移到回收站？'),
         content: const Text(
-            'Are you sure you want to move selected files to trash?'),
+            '确定要把选中的文件移到回收站吗？'),
         actions: [
           TextButton(
             child: Text(
-              'Cancel',
+              '取消',
               style: TextStyle(color: Theme.of(context).colorScheme.secondary),
             ),
             onPressed: () => Navigator.of(context).pop(),
           ),
           TextButton(
             child: Text(
-              'Trash All',
+              '全部移到回收站',
               style: TextStyle(color: Theme.of(context).colorScheme.secondary),
             ),
             onPressed: () {
@@ -195,12 +195,12 @@ class ItemDeletionHandler {
 
         onComplete?.call();
 
-        customSnackBar('All items were moved to the trash bin', type: 'info')
+        customSnackBar('所有项目已移到回收站', type: 'info')
             .show(context);
       }
     } catch (e) {
       if (context.mounted) {
-        customSnackBar('Error deleting selected items: $e', type: 'error')
+        customSnackBar('删除选中项目失败：$e', type: 'error')
             .show(context);
       }
     }

@@ -24,7 +24,7 @@ class CodeblockThemePage extends StatelessWidget {
       appBar: AppBarDragWrapper(
         child: AppBar(
           centerTitle: true,
-          title: Text('Select Code Theme'),
+          title: Text('选择代码主题'),
         ),
       ),
       body: CenteredPageWrapper(
@@ -35,7 +35,7 @@ class CodeblockThemePage extends StatelessWidget {
               trailing: DropdownButton(
                 value: context.watch<ThemeProvider>().codeHighlight,
                 items: [
-                  DropdownMenuItem(value: '', child: Text('Auto - Default')),
+                  DropdownMenuItem(value: '', child: Text('自动 - 默认')),
                   ...codeHighlightThemes
                 ],
                 onChanged: (value) {
@@ -44,7 +44,7 @@ class CodeblockThemePage extends StatelessWidget {
               ),
             ),
             if (context.watch<ThemeProvider>().codeHighlight == '')
-              Text('Auto switches between a11y-dark and a11y-light'),
+              Text('自动在 a11y-dark 和 a11y-light 之间切换'),
             MarkdownBlock(
               data: markdownData,
               selectable: false,

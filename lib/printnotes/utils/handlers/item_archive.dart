@@ -15,20 +15,20 @@ class ItemArchiveHandler {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Confirm Archive'),
+        title: const Text('确认归档'),
         content: Text(
-            'Are you sure you want to archive this ${item is Directory ? 'folder' : 'file'}? It will be removed from its current location.'),
+            '确定要归档这个${item is Directory ? '文件夹' : '文件'}吗？它将从当前位置移除。'),
         actions: [
           TextButton(
             child: Text(
-              'Cancel',
+              '取消',
               style: TextStyle(color: Theme.of(context).colorScheme.secondary),
             ),
             onPressed: () => Navigator.of(context).pop(),
           ),
           TextButton(
             child: Text(
-              'Archive',
+              '归档',
               style: TextStyle(color: Theme.of(context).colorScheme.secondary),
             ),
             onPressed: () async {
@@ -40,13 +40,13 @@ class ItemArchiveHandler {
                   readSettProv.loadItems(context, readSettProv.currentPath);
 
                   customSnackBar(
-                          '${item is Directory ? 'Folder' : 'File'} archived successfully',
+                          '${item is Directory ? '文件夹' : '文件'}已归档',
                           type: 'success')
                       .show(context);
                 }
               } catch (e) {
                 if (context.mounted) {
-                  customSnackBar('Error archiving item: $e', type: 'error')
+                  customSnackBar('归档失败：$e', type: 'error')
                       .show(context);
                 }
               }
@@ -62,13 +62,13 @@ class ItemArchiveHandler {
     try {
       await StorageSystem.unarchiveItem(item.path);
       if (context.mounted) {
-        customSnackBar('Item unarchived successfully', type: 'success')
+        customSnackBar('已取消归档', type: 'success')
             .show(context);
       }
       onComplete?.call();
     } catch (e) {
       if (context.mounted) {
-        customSnackBar('Error unarchiving item: $e', type: 'error')
+        customSnackBar('取消归档失败：$e', type: 'error')
             .show(context);
       }
     }

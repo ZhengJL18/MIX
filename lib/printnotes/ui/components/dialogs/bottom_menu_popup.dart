@@ -32,7 +32,7 @@ void showBottomMenu(
                     ? Theme.of(sheetContext).disabledColor
                     : Theme.of(sheetContext).colorScheme.secondary,
                 leading: const Icon(Icons.check),
-                title: const Text('Select'),
+                title: const Text('选择'),
                 onTap: isTreeView
                     ? null
                     : () {
@@ -50,7 +50,7 @@ void showBottomMenu(
                 Icons.drive_file_move_outline,
                 color: Theme.of(sheetContext).colorScheme.secondary,
               ),
-              title: const Text('Move'),
+              title: const Text('移动'),
               onTap: () {
                 Navigator.pop(sheetContext);
                 ItemMoveHandler.showMoveDialog(context, [item.uri]);
@@ -61,7 +61,7 @@ void showBottomMenu(
                 Icons.edit,
                 color: Theme.of(sheetContext).colorScheme.secondary,
               ),
-              title: const Text('Rename'),
+              title: const Text('重命名'),
               onTap: () {
                 Navigator.pop(sheetContext);
                 ItemRenameHandler.showRenameDialog(context, item);
@@ -73,7 +73,7 @@ void showBottomMenu(
                   Icons.copy,
                   color: Theme.of(sheetContext).colorScheme.secondary,
                 ),
-                title: const Text('Duplicate'),
+                title: const Text('复制'),
                 onTap: () {
                   Navigator.pop(sheetContext);
                   ItemDuplicationHandler(context).handleDuplicateItem(item);
@@ -84,7 +84,7 @@ void showBottomMenu(
                 Icons.archive_outlined,
                 color: Theme.of(sheetContext).colorScheme.secondary,
               ),
-              title: const Text('Archive'),
+              title: const Text('归档'),
               onTap: () {
                 Navigator.pop(sheetContext);
                 ItemArchiveHandler(context).handleArchiveItem(item);
@@ -95,7 +95,7 @@ void showBottomMenu(
                 Icons.delete_sweep,
                 color: Theme.of(sheetContext).colorScheme.secondary,
               ),
-              title: const Text('To Trash'),
+              title: const Text('移到回收站'),
               onTap: () {
                 Navigator.pop(sheetContext);
                 ItemDeletionHandler(context).showTrashConfirmation(item);
@@ -106,7 +106,7 @@ void showBottomMenu(
                 Icons.delete_forever,
                 color: Colors.red,
               ),
-              title: const Text('Delete'),
+              title: const Text('彻底删除'),
               onTap: () {
                 Navigator.pop(sheetContext);
                 ItemDeletionHandler(context)

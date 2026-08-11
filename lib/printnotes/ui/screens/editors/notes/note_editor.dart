@@ -160,23 +160,23 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
           context: context,
           barrierDismissible: false,
           builder: (context) => AlertDialog(
-            title: const Text('File Changed'),
+            title: const Text('文件已更改'),
             content: const Text(
-                'This file has been modified outside the app. Would you like to reload it?'),
+                '此文件已在 App 外被修改。是否重新加载？'),
             actions: [
               TextButton(
                 onPressed: () {
                   Navigator.of(context).pop();
                   _saveFileContent(context);
                 },
-                child: const Text('Keep My Changes'),
+                child: const Text('保留我的更改'),
               ),
               TextButton(
                 onPressed: () {
                   Navigator.of(context).pop();
                   _loadFileContent();
                 },
-                child: const Text('Reload File'),
+                child: const Text('重新加载文件'),
               ),
             ],
           ),
@@ -200,7 +200,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     } catch (e) {
       debugPrint('Error saving file content: $e');
       if (context.mounted) {
-        customSnackBar('Error saving file', type: 'error').show(context);
+        customSnackBar('保存文件失败', type: 'error').show(context);
       }
       return false;
     }
@@ -260,7 +260,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                 : [
                     if (!_readOnlyMode)
                       IconButton(
-                          tooltip: 'Preview/Edit Mode',
+                          tooltip: '预览/编辑模式',
                           icon: Icon(_isEditingFile
                               ? Icons.visibility
                               : Icons.mode_edit),
@@ -268,7 +268,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                     if (isScreenLarge(context) &&
                         _notesController.text.contains("# "))
                       IconButton(
-                        tooltip: 'Table of Contents',
+                        tooltip: '目录',
                         onPressed: () =>
                             _scaffoldKey.currentState!.openEndDrawer(),
                         icon: const Icon(Icons.toc_rounded),
@@ -278,7 +278,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                         PopupMenuItem(
                           child: const ListTile(
                             leading: Icon(Icons.info_outline),
-                            title: Text('Info'),
+                            title: Text('信息'),
                           ),
                           onTap: () =>
                               modalShowFileInfo(context, widget.fileUri),
@@ -293,7 +293,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                         PopupMenuItem(
                           child: ListTile(
                             leading: const Icon(Icons.share),
-                            title: Text('Share'),
+                            title: Text('分享'),
                             onTap: () {
                               SharePlus.instance.share(
                                   ShareParams(text: _notesController.text));
@@ -303,7 +303,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                         PopupMenuItem(
                           child: const ListTile(
                             leading: Icon(Icons.tune),
-                            title: Text('Configure'),
+                            title: Text('配置'),
                           ),
                           onTap: () => Navigator.of(context).push(
                               MaterialPageRoute(
@@ -353,7 +353,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                       const Padding(
                         padding: EdgeInsets.all(10),
                         child: Text(
-                          'Table of Contents',
+                          '目录',
                           style: TextStyle(
                               fontWeight: FontWeight.bold, fontSize: 24),
                           textAlign: TextAlign.center,
@@ -367,7 +367,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                             ? buildTocList()
                             : const Center(
                                 child: Text(
-                                  'Add headers using "#" to populate\n the table of contents',
+                                  '使用 "#" 添加标题以生成目录',
                                   textAlign: TextAlign.center,
                                 ),
                               ),
@@ -429,7 +429,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                   : _isError
                       ? const Center(
                           child: Text(
-                              'Error reading file, try reopening file again'))
+                              '读取文件失败，请重新打开文件'))
                       // Catch if "ctrl+shift+v" was used to switch between
                       // edit and preview mode
                       : Shortcuts(
@@ -470,7 +470,7 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                                             height: MediaQuery.sizeOf(context)
                                                 .height,
                                             child: Text(
-                                              'Double click screen or hit the pencil icon in the top right corner to write!',
+                                              '双击屏幕或点击右上角铅笔图标开始编辑！',
                                               style: TextStyle(
                                                   color: Theme.of(context)
                                                       .hintColor),

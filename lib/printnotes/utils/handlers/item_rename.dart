@@ -16,22 +16,22 @@ class ItemRenameHandler {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Rename ${item is Directory ? 'Folder' : 'File'}'),
+        title: Text('重命名${item is Directory ? '文件夹' : '文件'}'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(hintText: 'Enter new name'),
+          decoration: const InputDecoration(hintText: '输入新名称'),
         ),
         actions: [
           TextButton(
             child: Text(
-              'Cancel',
+              '取消',
               style: TextStyle(color: Theme.of(context).colorScheme.secondary),
             ),
             onPressed: () => Navigator.of(context).pop(),
           ),
           TextButton(
             child: Text(
-              'Rename',
+              '重命名',
               style: TextStyle(color: Theme.of(context).colorScheme.secondary),
             ),
             onPressed: () {
@@ -55,7 +55,7 @@ class ItemRenameHandler {
 
         if (showMessage == true) {
           customSnackBar(
-                  '"${path.basename(item.path)}"${item is Directory ? " folder" : ""} renamed successfully',
+                  '"${path.basename(item.path)}"${item is Directory ? "文件夹" : ""}已重命名',
                   type: 'success')
               .show(context);
         }
@@ -63,7 +63,7 @@ class ItemRenameHandler {
     } catch (e) {
       if (context.mounted) {
         customSnackBar(
-                'Error renaming "${path.basename(item.path)}"${item is Directory ? " folder" : ""}: $e',
+                '重命名"${path.basename(item.path)}"${item is Directory ? "文件夹" : ""}失败：$e',
                 type: 'error')
             .show(context);
       }

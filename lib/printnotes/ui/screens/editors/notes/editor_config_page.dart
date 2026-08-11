@@ -27,7 +27,7 @@ class EditorConfigPage extends StatelessWidget {
           backgroundColor: Theme.of(context).colorScheme.primary,
           foregroundColor: Theme.of(context).colorScheme.onPrimary,
           centerTitle: true,
-          title: const Text('Editor Configuration'),
+          title: const Text('编辑器设置'),
         ),
       ),
       body: CenteredPageWrapper(
@@ -35,7 +35,7 @@ class EditorConfigPage extends StatelessWidget {
           primary: true,
           children: [
             sectionTitle(
-              'Config',
+              '配置',
               Theme.of(context).colorScheme.secondary,
               padding: 10,
             ),
@@ -43,15 +43,15 @@ class EditorConfigPage extends StatelessWidget {
               iconColor: Theme.of(context).colorScheme.secondary,
               leading: Icon(Icons.font_download, size: userFontSize),
               title: Text(
-                'Font Size',
+                '字号',
                 style: TextStyle(fontSize: userFontSize),
               ),
-              subtitle: const Text('Change font size of all text in note'),
+              subtitle: const Text('更改笔记中所有文字的字号'),
               trailing: DropdownButton(
                   value: userFontSize,
                   items: const [
                     DropdownMenuItem(value: 12, child: Text('12px')),
-                    DropdownMenuItem(value: 16, child: Text('16px (Default)')),
+                    DropdownMenuItem(value: 16, child: Text('16px（默认）')),
                     DropdownMenuItem(value: 20, child: Text('20px')),
                     DropdownMenuItem(value: 24, child: Text('24px')),
                     DropdownMenuItem(value: 28, child: Text('28px')),
@@ -68,9 +68,9 @@ class EditorConfigPage extends StatelessWidget {
             ListTile(
               iconColor: Theme.of(context).colorScheme.secondary,
               leading: const Icon(Icons.edit),
-              title: const Text('Default to Edit Mode'),
+              title: const Text('默认进入编辑模式'),
               subtitle:
-                  const Text('Open note in edit mode rather than preview'),
+                  const Text('以编辑模式打开笔记而非预览'),
               trailing: Switch(
                   value: autoEditMode,
                   onChanged:
@@ -78,12 +78,12 @@ class EditorConfigPage extends StatelessWidget {
             ),
             const Divider(),
             sectionTitle(
-              'Toolbar',
+              '工具栏',
               Theme.of(context).colorScheme.secondary,
               padding: 10,
             ),
             ListTile(
-              title: const Text('Edit Toolbar?'),
+              title: const Text('编辑工具栏？'),
               trailing: Switch(
                   value: isEditingToolbar,
                   onChanged: context.read<EditorConfigProvider>().setIsEditing),
@@ -104,7 +104,7 @@ class EditorConfigPage extends StatelessWidget {
                 padding: EdgeInsets.all(10),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [Text('Include'), Text('Reorder')],
+                  children: [Text('包含'), Text('排序')],
                 ),
               ),
             AbsorbPointer(

@@ -64,7 +64,7 @@ class _SelectLocationDialogState extends State<SelectLocationDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Select destination:'),
+      title: const Text('选择目标位置：'),
       content: SizedBox(
         width: double.maxFinite,
         child: Column(
@@ -101,18 +101,18 @@ class _SelectLocationDialogState extends State<SelectLocationDialog> {
             // If no folders in directory, show message
             if (_directories.isEmpty)
               const Expanded(
-                child: Text('No further folders here!'),
+                child: Text('这里没有更多文件夹！'),
               ),
           ],
         ),
       ),
       actions: [
         TextButton(
-          child: const Text('Cancel'),
+          child: const Text('取消'),
           onPressed: () => Navigator.of(context).pop(),
         ),
         TextButton(
-          child: const Text('Move here'),
+          child: const Text('移动到这里'),
           onPressed: () =>
               Navigator.of(context).pop(Uri.directory(_currentDir)),
         ),

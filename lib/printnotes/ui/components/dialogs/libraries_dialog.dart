@@ -10,7 +10,7 @@ void showLibrariesDialog(BuildContext context) {
     context: context,
     builder: (BuildContext context) {
       return AlertDialog(
-        title: const Text('Libraries'),
+        title: const Text('开源库'),
         icon: const Icon(
           Icons.handshake,
           size: 40,
@@ -44,7 +44,7 @@ void showLibrariesDialog(BuildContext context) {
         actions: <Widget>[
           TextButton(
             child: Text(
-              'Close',
+              '关闭',
               style: TextStyle(color: Theme.of(context).colorScheme.secondary),
             ),
             onPressed: () {

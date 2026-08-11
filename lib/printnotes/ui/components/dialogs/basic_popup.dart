@@ -11,7 +11,7 @@ Future<bool> showBasicPopup(
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
               child: Text(
-                'No',
+                '取消',
                 style:
                     TextStyle(color: Theme.of(context).colorScheme.secondary),
               ),
@@ -22,7 +22,7 @@ Future<bool> showBasicPopup(
                 foregroundColor: Theme.of(context).colorScheme.onSecondary,
               ),
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Yes'),
+              child: const Text('确定'),
             ),
           ],
         ),

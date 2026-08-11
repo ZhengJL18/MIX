@@ -313,7 +313,7 @@ class _NotesDisplayState extends State<NotesDisplay> {
             actions: context.watch<SelectingProvider>().selectingMode
                 ? [
                     IconButton(
-                      tooltip: 'Select All',
+                      tooltip: '全选',
                       onPressed: () {
                         context
                             .read<SelectingProvider>()
@@ -322,7 +322,7 @@ class _NotesDisplayState extends State<NotesDisplay> {
                       icon: const Icon(Icons.select_all),
                     ),
                     IconButton(
-                      tooltip: 'Move Selected',
+                      tooltip: '移动选中',
                       onPressed: () {
                         ItemMoveHandler.showMoveDialog(
                             context, selectedItemsToFileEntity());
@@ -333,7 +333,7 @@ class _NotesDisplayState extends State<NotesDisplay> {
                       icon: const Icon(Icons.drive_file_move),
                     ),
                     IconButton(
-                      tooltip: 'Delete Selected',
+                      tooltip: '删除选中',
                       onPressed: () {
                         ItemDeletionHandler(context).showTrashManyConfirmation(
                           selectedItemsToFileEntity()
@@ -352,7 +352,7 @@ class _NotesDisplayState extends State<NotesDisplay> {
                   ]
                 : [
                     IconButton(
-                      tooltip: 'Reload List',
+                      tooltip: '刷新列表',
                       icon: const Icon(Icons.refresh),
                       onPressed: _refreshPage,
                     ),
@@ -379,7 +379,7 @@ class _NotesDisplayState extends State<NotesDisplay> {
                 ? const Center(child: CircularProgressIndicator())
                 : items.isEmpty
                     ? const Center(
-                        child: Text('Nothing here!'),
+                        child: Text('这里什么都没有！'),
                       )
                     : RefreshIndicator(
                     onRefresh: _refreshPage,

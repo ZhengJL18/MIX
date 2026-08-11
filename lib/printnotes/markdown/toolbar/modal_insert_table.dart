@@ -39,14 +39,14 @@ class _ModalInsertTableState extends State<ModalInsertTable> {
           autofocus: true,
           cursorRadius: const Radius.circular(20),
           decoration: InputDecoration.collapsed(
-              hintText: "Number of ${isColumn ? 'Columns' : 'Rows'}."),
+              hintText: "${isColumn ? '列' : '行'}的数量。"),
           style: const TextStyle(fontSize: 16),
           enableInteractiveSelection: true,
           validator: (value) {
-            if (value == null || value.isEmpty) return "Please enter a number";
+            if (value == null || value.isEmpty) return "请输入数字";
 
             final intVal = int.tryParse(value);
-            if (intVal == null) return "Please enter a valid number";
+            if (intVal == null) return "请输入有效数字";
 
             setState(
                 () => isColumn ? _tableColumns = intVal : _tableRows = intVal);
