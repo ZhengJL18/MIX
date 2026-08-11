@@ -21,11 +21,15 @@ class WebviewExtractResult {
   final String? error;
   final String? title;
 
+  /// 内容是否被 charLimit 截断（agent 可据此加大 char_limit 重抓）。
+  final bool truncated;
+
   WebviewExtractResult({
     this.content = '',
     this.success = false,
     this.error,
     this.title,
+    this.truncated = false,
   });
 }
 
@@ -117,7 +121,8 @@ Future<WebviewExtractResult> _runHeadless(
       if (text.trim().isEmpty && !completed) {
         return; // 空内容，等待后续加载。
       }
-      if (text.length > charLimit) {
+      final truncated = text.length > charLimit;
+      if (truncated) {
         text = text.substring(0, charLimit);
       }
       if (!completed) {
@@ -126,6 +131,7 @@ Future<WebviewExtractResult> _runHeadless(
           content: text,
           success: text.isNotEmpty,
           title: title,
+          truncated: truncated,
         ));
       }
     },

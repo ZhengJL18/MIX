@@ -415,6 +415,7 @@ Future<String> webExtractTool(
           'url': url,
           'title': wv.title,
           'content': wv.content,
+          if (wv.truncated) 'truncated': true,
         });
       } else {
         results.add({
@@ -451,7 +452,7 @@ Future<String> webExtractTool(
       if (content.length > charCap) {
         final head = content.substring(0, charCap ~/ 2);
         final tail = content.substring(content.length - charCap ~/ 2);
-        content = '$head\n\n... [truncated] ...\n\n$tail';
+        content = '$head\n\n... [TRUNCATED: 内容超过 ${charCap} 字符上限，如需完整内容请用更大的 char_limit 重新调用本工具抓取本 URL] ...\n\n$tail';
         truncated = true;
       }
       results.add({
@@ -504,7 +505,11 @@ const Map<String, dynamic> webExtractSchema = {
   'description':
       'Extract readable text content from a specific web page URL. '
       'Use after web_search to get full page content. Blocked for private '
-      'or internal network addresses.',
+      'or internal network addresses.\n'
+      'IMPORTANT: default char_limit is 15000. If the returned content has '
+      '"truncated": true, the page was cut off — re-call web_extract for that '
+      'same URL with a larger char_limit (e.g. 50000 or 100000) to get the '
+      'full content. Long articles often need this.',
   'parameters': {
     'type': 'object',
     'properties': {
@@ -520,7 +525,8 @@ const Map<String, dynamic> webExtractSchema = {
       },
       'char_limit': {
         'type': 'integer',
-        'description': 'Per-page char budget (default 15000)',
+        'description': 'Per-page char budget (default 15000, max 100000). '
+            'Increase (e.g. 50000) when the previous result was truncated.',
       },
     },
     'required': ['urls'],
@@ -550,10 +556,15 @@ void registerWebTools() {
     handler: (args, [kwargs]) async {
       final rawUrls = args['urls'];
       final urls = rawUrls is List ? rawUrls : const <dynamic>[];
+      var charLimit = args['char_limit'] as int?;
+      // 硬上限保护：agent 按需加大时最多 100K 字符，防超大值打爆上下文。
+      if (charLimit != null) {
+        charLimit = charLimit.clamp(1000, 100000);
+      }
       return await webExtractTool(
         urls,
         format: args['format'] as String?,
-        charLimit: args['char_limit'] as int?,
+        charLimit: charLimit,
       );
     },
     checkFn: () => true,
