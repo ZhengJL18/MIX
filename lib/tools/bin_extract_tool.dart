@@ -335,7 +335,7 @@ function handleXlsx(unzip, out) {
     for (var i = 0; i < sis.length; i++) shared.push(getText(sis[i], 't'));
   }
   var sheetKeys = Object.keys(unzip).filter(function(n) {
-    return /^xl\\/worksheets\\/sheet[0-9]+\\.xml$/.test(n);
+    return /^xl\\/worksheets\\/sheet[0-9]+\\.xml\$/.test(n);
   }).sort(function(a, b) {
     var na = parseInt(a.match(/sheet([0-9]+)/)[1]);
     var nb = parseInt(b.match(/sheet([0-9]+)/)[1]);
@@ -367,7 +367,7 @@ function handleXlsx(unzip, out) {
 
 function handleEpub(unzip, out) {
   var keys = Object.keys(unzip).filter(function(n) {
-    return /\\.(x?html?|htm)$/i.test(n);
+    return /\\.(x?html?|htm)\$/i.test(n);
   }).sort();
   out.push('\\n== EPUB 文本 (' + keys.length + ' 个 html) ==');
   for (var i = 0; i < keys.length && i < 30; i++) {
@@ -379,7 +379,7 @@ function handleEpub(unzip, out) {
   }
 }
 
-var TEXT_EXT = /\\\\.(txt|md|markdown|csv|json|xml|html?|js|mjs|ts|dart|py|java|c|cc|cpp|h|hpp|kt|swift|go|rs|rb|php|sql|yaml|yml|toml|ini|conf|log|sh|bat|ps1|css|scss|less)$/i;
+var TEXT_EXT = /\\\\.(txt|md|markdown|csv|json|xml|html?|js|mjs|ts|dart|py|java|c|cc|cpp|h|hpp|kt|swift|go|rs|rb|php|sql|yaml|yml|toml|ini|conf|log|sh|bat|ps1|css|scss|less)\$/i;
 
 function handleGenericZip(unzip, out) {
   var names = Object.keys(unzip);
@@ -405,10 +405,10 @@ async function handleZip(bytes) {
   var unzip = fflate.unzipSync(bytes);
   var out = ['ZIP 文件 (' + bytes.length + ' B)'];
   if (unzip['word/document.xml']) { handleDocx(unzip, out); return {kind: 'docx', text: out.join('\\n')}; }
-  var hasXlsx = Object.keys(unzip).some(function(n) { return /^xl\\/worksheets\\/sheet[0-9]+\\.xml$/.test(n); });
+  var hasXlsx = Object.keys(unzip).some(function(n) { return /^xl\\/worksheets\\/sheet[0-9]+\\.xml\$/.test(n); });
   if (hasXlsx) { handleXlsx(unzip, out); return {kind: 'xlsx', text: out.join('\\n')}; }
   var hasEpub = unzip['META-INF/container.xml'] ||
-    Object.keys(unzip).some(function(n) { return /^(OEBPS|EPUB)\\//.test(n) && /\\.(x?html?)$/i.test(n); });
+    Object.keys(unzip).some(function(n) { return /^(OEBPS|EPUB)\\//.test(n) && /\\.(x?html?)\$/i.test(n); });
   if (hasEpub) { handleEpub(unzip, out); return {kind: 'epub', text: out.join('\\n')}; }
   handleGenericZip(unzip, out);
   return {kind: 'zip', text: out.join('\\n')};
