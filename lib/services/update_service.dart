@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:app_installer_plus/app_installer_plus.dart';
@@ -115,12 +116,29 @@ class UpdateService {
     String downloadUrl, {
     void Function(double progress)? onProgress,
   }) async {
+    // 固定唯一文件名 + 每次下载前清理同名残留。否则「缓存」的旧/半成品
+    // APK 会一直占着路径，安装器可能读到坏文件 —— 表现为"一直装不上"。
+    const fileName = 'MIX-update';
     try {
-      // 下载加超时上限，避免慢网/断流时永远转圈不返回。
-      await AppInstallerPlus().downloadAndInstallApk(
-        downloadFileUrl: downloadUrl,
-        onProgress: onProgress,
-      ).timeout(const Duration(minutes: 15));
+      // 1) 取消可能仍挂在后台的下载。超时/中断后 app_installer_plus 的
+      //    _isDownloading 会卡在 true，之后所有下载都被拒（"永远下载不下来"）。
+      //    这里顺带删掉半成品文件。
+      await AppInstallerPlus().cancelDownload(deletePartialDownload: true);
+      // 2) 删除上次同名 APK，确保这次从零下载干净文件。
+      await AppInstallerPlus().removedDownloadedApk(downloadFileName: fileName);
+      // 3) 下载 + 安装。失败自动清理残留。
+      try {
+        await AppInstallerPlus().downloadAndInstallApk(
+          downloadFileUrl: downloadUrl,
+          onProgress: onProgress,
+          downloadFileName: fileName,
+          deleteOnError: true,
+        ).timeout(const Duration(minutes: 15));
+      } on TimeoutException {
+        // 放弃等待时把后台下载一并取消 + 清残留，下次重试才不卡死。
+        await AppInstallerPlus().cancelDownload(deletePartialDownload: true);
+        return false;
+      }
       return true;
     } catch (e) {
       return false;
