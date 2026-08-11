@@ -56,21 +56,32 @@ class CRunResult {
 //  int tcc_relocate(TCCState *s, void *ptr);             // TCC_RELOCATE_AUTO=(void*)1
 //  void *tcc_get_symbol(TCCState *s, const char *name);
 //  int tcc_run(TCCState *s, int argc, char **argv);
-typedef _TccNew = Pointer<Void> Function();
-typedef _TccDelete = Void Function(Pointer<Void>);
-typedef _TccSetErrorFunc =
-    Void Function(Pointer<Void>, Pointer<Void>, Pointer<NativeFunction<Void Function(Pointer<Void>, Pointer<Utf8>)>>);
-typedef _TccSetOptions = Void Function(Pointer<Void>, Pointer<Utf8>);
-typedef _TccSetOutputType = Int32 Function(Pointer<Void>, Int32);
-typedef _TccCompileString = Int32 Function(Pointer<Void>, Pointer<Utf8>);
-typedef _TccRelocate = Int32 Function(Pointer<Void>, Pointer<Void>);
-typedef _TccRun = Int32 Function(Pointer<Void>, Int32, Pointer<Pointer<Utf8>>);
+// dart:ffi 规范：lookupFunction 需要 native typedef（ffi 类型）与 dart typedef（dart 类型）成对。
+typedef _TccNewNative = Pointer<Void> Function();
+typedef _TccNewDart = Pointer<Void> Function();
+typedef _TccDeleteNative = Void Function(Pointer<Void>);
+typedef _TccDeleteDart = void Function(Pointer<Void>);
+typedef _TccErrorCb = Void Function(Pointer<Void>, Pointer<Utf8>);
+typedef _TccErrorFuncNative =
+    Void Function(Pointer<Void>, Pointer<Void>, Pointer<NativeFunction<_TccErrorCb>>);
+typedef _TccErrorFuncDart =
+    void Function(Pointer<Void>, Pointer<Void>, Pointer<NativeFunction<_TccErrorCb>>);
+typedef _TccSetOptionsNative = Void Function(Pointer<Void>, Pointer<Utf8>);
+typedef _TccSetOptionsDart = void Function(Pointer<Void>, Pointer<Utf8>);
+typedef _TccSetOutputTypeNative = Int32 Function(Pointer<Void>, Int32);
+typedef _TccSetOutputTypeDart = int Function(Pointer<Void>, int);
+typedef _TccCompileStringNative = Int32 Function(Pointer<Void>, Pointer<Utf8>);
+typedef _TccCompileStringDart = int Function(Pointer<Void>, Pointer<Utf8>);
+typedef _TccRelocateNative = Int32 Function(Pointer<Void>, Pointer<Void>);
+typedef _TccRelocateDart = int Function(Pointer<Void>, Pointer<Void>);
+typedef _TccRunNative = Int32 Function(Pointer<Void>, Int32, Pointer<Pointer<Utf8>>);
+typedef _TccRunDart = int Function(Pointer<Void>, int, Pointer<Pointer<Utf8>>);
 
 /// TCC_OUTPUT_MEMORY（tcc.h）。
 const _tccOutputMemory = 1;
 
 /// TCC_RELOCATE_AUTO = (void*)1（tcc.h）。
-final _tccRelocateAuto = Pointer.fromAddress(1);
+final Pointer<Void> _tccRelocateAuto = Pointer<Void>.fromAddress(1);
 
 /// 编译错误收集（NativeCallable 回调 → 静态 buffer）。
 StringBuffer? _compileErrors;
@@ -128,7 +139,7 @@ class CEngine {
   }) async {
     if (_lib != null && _includeDir != null) return;
     if (_ensureFuture != null) return _ensureFuture;
-    _ensureFuture = _download(onProgress: onProgress);
+    _ensureFuture = _download(onPhase: onProgress);
     return _ensureFuture;
   }
 
@@ -193,19 +204,19 @@ class CEngine {
     if (includeDir == null) throw StateError('头文件未就绪');
 
     // 绑定符号
-    final tccNew = lib.lookupFunction<_TccNew, _TccNew>('tcc_new');
-    final tccDelete = lib.lookupFunction<_TccDelete, _TccDelete>('tcc_delete');
+    final tccNew = lib.lookupFunction<_TccNewNative, _TccNewDart>('tcc_new');
+    final tccDelete = lib.lookupFunction<_TccDeleteNative, _TccDeleteDart>('tcc_delete');
     final tccSetErrorFunc =
-        lib.lookupFunction<_TccSetErrorFunc, _TccSetErrorFunc>('tcc_set_error_func');
+        lib.lookupFunction<_TccErrorFuncNative, _TccErrorFuncDart>('tcc_set_error_func');
     final tccSetOptions =
-        lib.lookupFunction<_TccSetOptions, _TccSetOptions>('tcc_set_options');
-    final tccSetOutputType = lib.lookupFunction<_TccSetOutputType, _TccSetOutputType>(
+        lib.lookupFunction<_TccSetOptionsNative, _TccSetOptionsDart>('tcc_set_options');
+    final tccSetOutputType = lib.lookupFunction<_TccSetOutputTypeNative, _TccSetOutputTypeDart>(
         'tcc_set_output_type');
-    final tccCompileString = lib.lookupFunction<_TccCompileString, _TccCompileString>(
+    final tccCompileString = lib.lookupFunction<_TccCompileStringNative, _TccCompileStringDart>(
         'tcc_compile_string');
     final tccRelocate =
-        lib.lookupFunction<_TccRelocate, _TccRelocate>('tcc_relocate');
-    final tccRun = lib.lookupFunction<_TccRun, _TccRun>('tcc_run');
+        lib.lookupFunction<_TccRelocateNative, _TccRelocateDart>('tcc_relocate');
+    final tccRun = lib.lookupFunction<_TccRunNative, _TccRunDart>('tcc_run');
 
     // 临时输出文件（freopen 重定向目标）
     final support = await _appSupport;
