@@ -61,69 +61,10 @@ jobs:
       # versionCode 每次 push 必升，App 端据此检测到新版本。
       # --target-platform android-arm64：只打 arm64-v8a，放弃 32 位老机型
       # 与 x86 模拟器，APK 体积减半以上（ABI 是乘数，原生库每个 ABI 各一份）。
-      #
-      # serious_python（原生 CPython 嵌入，替代 WebView+Pyodide）：
-      #   1) 先用 serious_python CLI 打包 Python runner（assets/python/runner/main.py，
-      #      纯 stdlib HTTP server）→ staging 到 build/serious_python_app，gradle 会
-      #      把 CPython 运行时 + stdlib + app 一起打进 APK。
-      #   2) 不装任何 site-packages（--skip-site-packages）：科学计算 wheels
-      #      （numpy/matplotlib/...）全部运行时按需下载解压注入，不进 APK。
-      #   3) SERIOUS_PYTHON_SITE_PACKAGES 必须指向一个存在的目录（构建脚本检查非空）。
-      - name: Setup NDK (for libtcc)
-        run: |
-          if [ ! -d "$HOME/android-ndk-r26d" ]; then
-            wget -q https://dl.google.com/android/repository/android-ndk-r26d-linux.zip -O /tmp/ndk.zip
-            unzip -q /tmp/ndk.zip -d "$HOME"
-          fi
-          echo "ANDROID_NDK_HOME=$HOME/android-ndk-r26d" >> "$GITHUB_ENV"
-
-      # C 代码块引擎：交叉编译 libtcc（TinyCC）为 Android arm64 共享库，
-      # 连同 Android 标准头文件一起打包为 release asset（App 按需下载，
-      # Dart FFI 直调编译执行，不进 APK）。
-      - name: Build libtcc (NDK cross-compile, arm64-v8a)
-        run: |
-          set -e
-          git clone --depth 1 https://github.com/Alex2804/libtcc-cmake /tmp/libtcc-cmake
-          cd /tmp/libtcc-cmake
-          cmake -B build \
-            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
-            -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-23 \
-            -DLIBTCC_BUILD_TYPE=SHARED \
-            -DLIBTCC_TARGET_SYSTEM=android \
-            -DLIBTCC_TARGET_ARCHITECTURE=ARM64 \
-            -DLIBTCC_NAME=libtcc \
-            -DLIBTCC_INSTALL_RUNTIME=ON \
-            -DLIBTCC_RUNTIME_TARGET_PATH="$GITHUB_WORKSPACE/build/libtcc-release/include"
-          cmake --build build --target libtcc -j2
-          # 收集产物：libtcc.so + include 打包（tar 内直接是头文件，App 解压即用）
-          mkdir -p "$GITHUB_WORKSPACE/build/libtcc-release"
-          cp build/libtcc.so "$GITHUB_WORKSPACE/build/libtcc-release/libtcc-arm64-v8a.so"
-          # include 头文件：CMake 的 LIBTCC_RUNTIME_TARGET_PATH 不会生成目录，
-          # 直接拷贝 libtcc-cmake 源码自带的 Android 标准头文件（含 stdio.h 等）
-          mkdir -p "$GITHUB_WORKSPACE/build/libtcc-release/include"
-          cp -r runtime/android/include/. "$GITHUB_WORKSPACE/build/libtcc-release/include/"
-          cd "$GITHUB_WORKSPACE/build/libtcc-release/include"
-          tar czf "$GITHUB_WORKSPACE/build/libtcc-release/tcc-include-android.tar.gz" .
-          # 验证：NEEDED 依赖必须全是系统库（libc/libm/libdl/liblog），
-          # 否则 dlopen 时找不到依赖会失败
-          echo "=== libtcc.so NEEDED dependencies ==="
-          readelf -d "$GITHUB_WORKSPACE/build/libtcc-release/libtcc-arm64-v8a.so" | grep NEEDED
-
-      - name: Package Python runner (serious_python)
-        run: |
-          export SERIOUS_PYTHON_APP=$GITHUB_WORKSPACE/build/serious_python_app
-          export SERIOUS_PYTHON_SITE_PACKAGES=$GITHUB_WORKSPACE/build/site-packages
-          mkdir -p "$SERIOUS_PYTHON_SITE_PACKAGES"
-          dart run serious_python:main package assets/python/runner \
-            -p Android --arch arm64-v8a --skip-site-packages
-
+      # 代码执行全部走云端（RemoteCodeEngine POST 到用户服务器），
+      # APK 不再内嵌 CPython/serious_python/libtcc 运行时。
       - name: Build APK (release)
         run: flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}
-        # serious_python gradle 插件需要这两个变量（上一步 export 不会跨步骤传递）。
-        env:
-          SERIOUS_PYTHON_APP: ${{ github.workspace }}/build/serious_python_app
-          SERIOUS_PYTHON_SITE_PACKAGES: ${{ github.workspace }}/build/site-packages
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -145,6 +86,4 @@ jobs:
             ${{ github.event.head_commit.message }}
           files: |
             build/app/outputs/flutter-apk/app-release.apk
-            build/libtcc-release/libtcc-arm64-v8a.so
-            build/libtcc-release/tcc-include-android.tar.gz
           generate_release_notes: true

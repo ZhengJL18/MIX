@@ -2,6 +2,7 @@ package com.mix.app
 
 import android.Manifest
 import android.content.Intent
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -27,6 +28,18 @@ class MainActivity : FlutterActivity() {
                 "openExternalStorageSettings" -> {
                     openExternalStorageSettings()
                     result.success(null)
+                }
+                // MediaScanner 扫描单个文件，让系统相册识别（图片保存用）。
+                "scanMedia" -> {
+                    val path = call.argument<String>("path")
+                    if (path == null) {
+                        result.error("400", "Missing path", null)
+                    } else {
+                        MediaScannerConnection.scanFile(
+                            applicationContext, arrayOf(path), null, null
+                        )
+                        result.success(true)
+                    }
                 }
                 else -> result.notImplemented()
             }

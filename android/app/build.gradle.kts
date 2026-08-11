@@ -30,15 +30,12 @@ android {
 
     defaultConfig {
         applicationId = "com.mix.app"
-        // serious_python 要求 minSdk 23+（CPython 运行时 modern packaging 从
-        // APK 内存映射加载 native libs）。Flutter 默认值可能低于 23，显式指定。
-        minSdk = 23
+        minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
         // 只打 arm64：MIX 瘦身策略（放弃 32 位老机型）。
-        // serious_python 的 android wheel 也是 arm64_v8a，与之一致。
         ndk {
             abiFilters += listOf("arm64-v8a")
         }

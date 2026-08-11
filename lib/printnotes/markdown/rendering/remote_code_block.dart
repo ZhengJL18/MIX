@@ -13,11 +13,13 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../services/image_saver.dart';
 import 'code_engine.dart';
 
 /// 官方云端执行服务器（内置默认，用户零配置）。
@@ -316,44 +318,50 @@ class _RemoteCodeBlockWidgetState extends State<RemoteCodeBlockWidget> {
     }
 
     final result = _result;
-    if (result != null && result.error == null && result.images.isNotEmpty) {
-      return [
-        Padding(
-          padding: const EdgeInsets.all(8),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final b64 in result.images)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: Image.memory(
-                    base64Decode(b64),
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => const SizedBox.shrink(),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        if (result.stdout.trim().isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-            child: SelectableText(
-              result.stdout.trim(),
-              style: TextStyle(
-                  fontSize: 12,
-                  fontFamily: 'monospace',
-                  color: theme.colorScheme.onSurfaceVariant),
-            ),
-          ),
-      ];
-    }
-
     final errText = result?.error ??
         (result != null && result.stderr.trim().isNotEmpty
             ? result.stderr.trim()
             : _error);
     final hasStdout = result != null && result.stdout.trim().isNotEmpty;
+    final hasStderr = result != null && result.stderr.trim().isNotEmpty;
+    final hasImages = result != null && result.images.isNotEmpty;
+
+    final mono =
+        const TextStyle(fontSize: 12, fontFamily: 'monospace');
+    final children = <Widget>[];
+
+    // 统一渲染顺序：错误 → 图片 → stdout → stderr → 耗时。
+    if (errText != null && errText.isNotEmpty) {
+      children.add(SelectableText(errText,
+          style: mono.copyWith(color: theme.colorScheme.error)));
+    }
+    if (hasImages) {
+      children.add(_buildImages(result!.images));
+    }
+    if (hasStdout) {
+      children.add(Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: SelectableText(result!.stdout.trim(),
+            style: mono.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+      ));
+    }
+    if (hasStderr && errText == null) {
+      children.add(Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: SelectableText(result!.stderr.trim(),
+            style: mono.copyWith(color: theme.colorScheme.error)),
+      ));
+    }
+    if (result?.durationMs != null && errText == null) {
+      children.add(Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Text('耗时 ${result!.durationMs}ms',
+            style: TextStyle(
+                fontSize: 11, color: theme.colorScheme.onSurfaceVariant)),
+      ));
+    }
+    if (children.isEmpty) return const [];
+
     return [
       Padding(
         padding: const EdgeInsets.all(12),
@@ -366,33 +374,89 @@ class _RemoteCodeBlockWidgetState extends State<RemoteCodeBlockWidget> {
                     fontWeight: FontWeight.w600,
                     color: theme.colorScheme.onSurface)),
             const SizedBox(height: 6),
-            if (errText != null && errText.isNotEmpty)
-              SelectableText(errText,
-                  style: TextStyle(
-                      fontSize: 12,
-                      fontFamily: 'monospace',
-                      color: theme.colorScheme.error)),
-            if (hasStdout)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: SelectableText(result!.stdout.trim(),
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontFamily: 'monospace',
-                        color: theme.colorScheme.onSurfaceVariant)),
-              ),
-            if (result?.durationMs != null && errText == null)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text('耗时 ${result!.durationMs}ms',
-                    style: TextStyle(
-                        fontSize: 11,
-                        color: theme.colorScheme.onSurfaceVariant)),
-              ),
+            ...children,
           ],
         ),
       ),
     ];
+  }
+
+  /// 图片结果区：按屏宽解码防 OOM，点击可全屏查看 + 保存相册。
+  Widget _buildImages(List<String> b64Images) {
+    // 缩略图按屏宽×dpr 解码，避免大图（matplotlib 高 dpi）解码撑爆内存。
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final decodeWidth = (screenWidth * dpr).round();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final b64 in b64Images)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: GestureDetector(
+              onTap: () => _showImageFullscreen(base64Decode(b64)),
+              child: Image.memory(
+                base64Decode(b64),
+                fit: BoxFit.contain,
+                cacheWidth: decodeWidth,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  /// 全屏查看图片（InteractiveViewer 缩放/拖动），顶部可保存到相册。
+  Future<void> _showImageFullscreen(Uint8List bytes) {
+    return showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog.fullscreen(
+        backgroundColor: Colors.black,
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: InteractiveViewer(
+                maxScale: 5,
+                child: Center(
+                  child: Image.memory(bytes, fit: BoxFit.contain),
+                ),
+              ),
+            ),
+            Positioned(
+              top: MediaQuery.paddingOf(ctx).top + 8,
+              left: 8,
+              right: 8,
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    tooltip: '关闭',
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    onPressed: () => _saveToGallery(bytes, ctx),
+                    icon: const Icon(Icons.download, color: Colors.white),
+                    tooltip: '保存到相册',
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _saveToGallery(Uint8List bytes, BuildContext ctx) async {
+    final messenger = ScaffoldMessenger.of(ctx);
+    try {
+      final path = await ImageSaver.saveImageToGallery(bytes);
+      messenger.showSnackBar(SnackBar(content: Text('已保存到相册：$path')));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('保存失败：$e')));
+    }
   }
 }
 

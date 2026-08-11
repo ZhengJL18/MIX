@@ -28,8 +28,6 @@ import 'package:mix/printnotes/markdown/rendering/underline.dart';
 import 'package:mix/printnotes/markdown/rendering/note_tags.dart';
 
 import 'package:mix/printnotes/markdown/link_handler.dart';
-import 'package:mix/printnotes/markdown/rendering/c_code_block.dart';
-import 'package:mix/printnotes/markdown/rendering/python_code_block.dart';
 import 'package:mix/printnotes/markdown/rendering/remote_code_block.dart';
 import 'package:mix/printnotes/markdown/rendering/code_engine.dart';
 
@@ -52,9 +50,8 @@ MarkdownConfig theMarkdownConfigs(
     // 注册内置引擎（幂等：重复注册同名会覆盖，但无害）。
     // 新增语言 = 新建 CodeEngine 实现 + 在这里注册一行（或引擎内部自注册）。
     CodeEngineRegistry.register(const MermaidCodeEngine());
-    CodeEngineRegistry.register(const PythonCodeEngine());
-    CodeEngineRegistry.register(const CCodeEngine());
-    // 云端执行引擎：覆盖 python/c（本地引擎退役），并解锁 js/bash/java/sql。
+    // 云端执行引擎：所有可执行语言统一 POST 到服务器执行，App 只渲染结果。
+    // mermaid 是图表渲染（非执行），保留本地渲染。
     CodeEngineRegistry.register(
         const RemoteCodeEngine('python', 'Python (云端)', aliases: ['py']));
     CodeEngineRegistry.register(const RemoteCodeEngine('c', 'C (云端)'));
@@ -64,8 +61,7 @@ MarkdownConfig theMarkdownConfigs(
         const RemoteCodeEngine('bash', 'Bash (云端)', aliases: ['sh', 'shell']));
     CodeEngineRegistry.register(const RemoteCodeEngine('java', 'Java (云端)'));
     CodeEngineRegistry.register(const RemoteCodeEngine('sql', 'SQL (云端)'));
-    // 命中已注册引擎（mermaid → 图，python → 原生 CPython 执行，c → libtcc 编译执行）
-    // → 交给引擎。
+    // 命中已注册引擎（mermaid → 图，其余 → 云端执行）→ 交给引擎。
     final engine = CodeEngineRegistry.engineFor(language);
     if (engine != null) {
       return engine.buildWidget(text);
