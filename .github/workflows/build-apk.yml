@@ -99,6 +99,10 @@ jobs:
           # 收集产物：libtcc.so + include 打包（tar 内直接是头文件，App 解压即用）
           mkdir -p "$GITHUB_WORKSPACE/build/libtcc-release"
           cp build/libtcc.so "$GITHUB_WORKSPACE/build/libtcc-release/libtcc-arm64-v8a.so"
+          # include 头文件：CMake 的 LIBTCC_RUNTIME_TARGET_PATH 不会生成目录，
+          # 直接拷贝 libtcc-cmake 源码自带的 Android 标准头文件（含 stdio.h 等）
+          mkdir -p "$GITHUB_WORKSPACE/build/libtcc-release/include"
+          cp -r runtime/android/include/. "$GITHUB_WORKSPACE/build/libtcc-release/include/"
           cd "$GITHUB_WORKSPACE/build/libtcc-release/include"
           tar czf "$GITHUB_WORKSPACE/build/libtcc-release/tcc-include-android.tar.gz" .
           # 验证：NEEDED 依赖必须全是系统库（libc/libm/libdl/liblog），
