@@ -120,6 +120,10 @@ jobs:
 
       - name: Build APK (release)
         run: flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}
+        # serious_python gradle 插件需要这两个变量（上一步 export 不会跨步骤传递）。
+        env:
+          SERIOUS_PYTHON_APP: ${{ github.workspace }}/build/serious_python_app
+          SERIOUS_PYTHON_SITE_PACKAGES: ${{ github.workspace }}/build/site-packages
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
