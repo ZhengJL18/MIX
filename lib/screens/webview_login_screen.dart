@@ -21,7 +21,6 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
   final TextEditingController _urlCtrl = TextEditingController();
   InAppWebViewController? _controller;
   String _currentUrl = '';
-  String? _error;
   bool _loading = false;
   bool _loginDetected = false;
 
@@ -45,26 +44,24 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       url = 'https://$url';
     }
-    setState(() {
-      _error = null;
-      _loading = true;
-    });
+    setState(() => _loading = true);
     _controller?.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
   }
 
-  /// 粗略判断"已登录"：页面 URL 从登录框跳回正常内容页，且标题/正文非空。
-  void _checkLogin(WebUri? url) {
-    if (url == null) return;
-    final host = url.host ?? '';
+  /// 粗略判断"已登录"：页面 URL 从登录框跳回正常内容页。
+  void _checkLogin(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    final host = uri.host;
     // 登录页常见路径片段；跳到这些之外基本算登录完成。
     final loginPaths = ['login', 'passport', 'signin', 'sign_in', 'account/login'];
-    final path = url.path ?? '';
+    final path = uri.path;
     final isLoginPath = loginPaths.any(path.contains);
     if (!isLoginPath && host.isNotEmpty && !_loginDetected) {
       _loginDetected = true;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已保存 $_host 的登录态，爬虫可抓取该站内容')),
+          SnackBar(content: Text('已保存 $host 的登录态，爬虫可抓取该站内容')),
         );
       }
     }
@@ -121,15 +118,7 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
           ),
           // WebView 主体。
           Expanded(
-            child: _error != null
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text('加载失败：$_error',
-                          style: TextStyle(color: theme.colorScheme.error)),
-                    ),
-                  )
-                : InAppWebView(
+            child: InAppWebView(
                     initialUrlRequest:
                         URLRequest(url: WebUri(_urlCtrl.text)),
                     initialSettings: InAppWebViewSettings(
@@ -145,21 +134,15 @@ class _WebViewLoginScreenState extends State<WebViewLoginScreen> {
                     onProgressChanged: (controller, progress) {
                       if (mounted) setState(() => _loading = progress < 100);
                     },
-                    onUrlChange: (controller, urlChange) {
-                      final url = urlChange.url;
-                      if (url == null) return;
+                    onLoadStop: (controller, url) async {
+                      final urlStr = url?.toString() ?? '';
                       if (mounted) {
                         setState(() {
-                          _currentUrl = url.toString();
-                          _urlCtrl.text = url.toString();
+                          _currentUrl = urlStr;
+                          if (urlStr.isNotEmpty) _urlCtrl.text = urlStr;
                         });
                       }
-                      _checkLogin(url);
-                    },
-                    onReceivedError: (controller, req, err) {
-                      if (mounted) {
-                        setState(() => _error = '${err.errorCode}: ${err.description}');
-                      }
+                      _checkLogin(urlStr);
                     },
                   ),
           ),
