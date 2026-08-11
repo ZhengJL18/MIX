@@ -448,11 +448,13 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                         },
                         child: FocusableActionDetector(
                           autofocus: true,
-                          child: SingleChildScrollView(
-                            controller: _autoScrollController,
-                            padding: const EdgeInsets.fromLTRB(10, 10, 10, 100),
-                            child: _isEditingFile
-                                ? EditorField(
+                          child: _isEditingFile
+                              // 编辑模式：外层滚动容器给编辑器。
+                              ? SingleChildScrollView(
+                                  controller: _autoScrollController,
+                                  padding:
+                                      const EdgeInsets.fromLTRB(10, 10, 10, 100),
+                                  child: EditorField(
                                     controller: _notesController,
                                     focusNode: _noteFocusNode,
                                     onChanged: (value) => _setUpAutoSave(),
@@ -460,38 +462,44 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                                     fontSize: context
                                         .watch<EditorConfigProvider>()
                                         .fontSize,
-                                  )
-                                : GestureDetector(
-                                    // Check if double tap to change to edit mode
-                                    onDoubleTap: _toggleMode,
-                                    child: _notesController.text.isEmpty
-                                        // If note is empty so message
-                                        ? SizedBox(
-                                            height: MediaQuery.sizeOf(context)
-                                                .height,
-                                            child: Text(
-                                              '双击屏幕或点击右上角铅笔图标开始编辑！',
-                                              style: TextStyle(
-                                                  color: Theme.of(context)
-                                                      .hintColor),
-                                            ),
-                                          )
-                                        // Parse and render the markdown text
-                                        : buildMarkdownWidget(
+                                  ),
+                                )
+                              // 预览模式：不包外层滚动体，也不传 controller/
+                              // physics/shrinkWrap —— 让 MarkdownWidget 引擎自
+                              // 建 controller 直接滚动。之前外层 SingleChildScrollView
+                              // 与内层 ListView 共用 _autoScrollController 导致一个
+                              // controller 挂两个 ScrollPosition，下滑时内外分歧
+                              // 拉大 → 卡住/跳顶（上划回 0 时一致所以正常）。
+                              : GestureDetector(
+                                  // Check if double tap to change to edit mode
+                                  onDoubleTap: _toggleMode,
+                                  child: _notesController.text.isEmpty
+                                      // If note is empty so message
+                                      ? SizedBox(
+                                          height: MediaQuery.sizeOf(context)
+                                              .height,
+                                          child: Text(
+                                            '双击屏幕或点击右上角铅笔图标开始编辑！',
+                                            style: TextStyle(
+                                                color: Theme.of(context)
+                                                    .hintColor),
+                                          ),
+                                        )
+                                      // Parse and render the markdown text
+                                      : Padding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                              10, 10, 10, 100),
+                                          child: buildMarkdownWidget(
                                             context,
                                             data: previewBody,
                                             fileUri: widget.fileUri,
-                                            controller: _autoScrollController,
                                             tocController: _tocController,
-                                            physics:
-                                                NeverScrollableScrollPhysics(),
-                                            shrinkWrap: true,
                                             editingController: _notesController,
                                             onCheckboxToggle: () =>
                                                 _saveFileContent(context),
                                           ),
-                                  ),
-                          ),
+                                        ),
+                                ),
                                   ),
                             ),
                           ),
