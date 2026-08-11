@@ -33,6 +33,9 @@ class WebviewExtractResult {
 ///
 /// [url] 需通过 [isAllowedUrl] 白名单校验（由调用方决定）。
 /// [charLimit] 正文截断上限。
+///
+/// 登录态：Android 上 Headless 与有 UI 的 WebView 共享平台级全局 cookie jar，
+/// 用户在「网页登录」页登录某站点后，这里抓取该域名自动带登录态。
 Future<WebviewExtractResult> webviewExtract(
   String url, {
   int charLimit = 15000,

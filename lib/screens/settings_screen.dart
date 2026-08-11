@@ -17,6 +17,7 @@ import 'skills_screen.dart';
 import 'theme_screen.dart';
 import 'vault_screen.dart';
 import 'vision_settings_screen.dart';
+import 'webview_login_screen.dart';
 import '../main.dart' show checkUpdateHandler;
 import '../printnotes/constants/constants.dart' as pn;
 import '../printnotes/ui/screens/home/main_screen.dart' as printnotes;
@@ -429,6 +430,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Navigator.of(context).push(
                         MaterialPageRoute(
                             builder: (_) => const VaultScreen()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.login),
+                    title: const Text('网页登录'),
+                    subtitle: const Text('登录后爬虫自动带登录态'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const WebViewLoginScreen()),
                       );
                     },
                   ),

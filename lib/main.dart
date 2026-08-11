@@ -36,6 +36,7 @@ import 'refine/trajectory_store.dart';
 import 'screens/file_browser_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/theme_screen.dart';
+import 'screens/webview_login_screen.dart';
 import 'services/multi_agent.dart';
 import 'services/storage_permission.dart';
 import 'services/study_engine.dart';
@@ -54,6 +55,7 @@ import 'tools/memory_manager.dart';
 import 'tools/memory_tool.dart';
 import 'tools/moa_tool.dart';
 import 'tools/model_tools.dart';
+import 'tools/web_login_tool.dart';
 import 'tools/notes_tools.dart';
 import 'tools/pdf_extract_tool.dart';
 import 'tools/bin_extract_tool.dart';
@@ -378,11 +380,13 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.addListener(_onChatScroll);
     registerFileTools();
     registerWebTools();
+    loadWebviewHosts();
     registerTodoTool();
     registerSessionSearchTool();
     registerGitTools();
     registerClarifyTool();
     clarifyHandler = _showClarifyDialog;
+    webLoginHandler = _openWebLogin;
     registerDelegateTool();
     delegateHandler = (task, toolsets, depth) async {
       final svc = await _ensureMultiAgent();
@@ -478,6 +482,25 @@ class _ChatScreenState extends State<ChatScreen> {
         const SnackBar(content: Text('已是最新版本')),
       );
     }
+  }
+
+  /// web_login 工具回调：打开内嵌登录页，返回用户操作结果给 agent。
+  Future<String> _openWebLogin(String url, String domain) {
+    final initialUrl =
+        url.isNotEmpty ? url : (domain.isNotEmpty ? 'https://$domain' : '');
+    final completer = Completer<String>();
+    if (!mounted) {
+      completer.complete('登录页无法打开：界面未就绪');
+      return completer.future;
+    }
+    Navigator.of(context)
+        .push(MaterialPageRoute(
+          builder: (_) => WebViewLoginScreen(initialUrl: initialUrl),
+        ))
+        .then((result) {
+          completer.complete(result as String? ?? '用户已关闭登录页');
+        });
+    return completer.future;
   }
 
   void _showUpdateDialog(UpdateInfo info) {
@@ -1599,6 +1622,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const FileBrowserScreen()),
                   );
+                case 'web_login':
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const WebViewLoginScreen()),
+                  );
                 case 'settings':
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => SettingsScreen()),
@@ -1661,6 +1688,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               PopupMenuDivider(),
+              PopupMenuItem(
+                value: 'web_login',
+                child: Row(
+                  children: [
+                    Icon(Icons.login, size: 18, color: context.appPalette.textSecondary),
+                    SizedBox(width: 8),
+                    Text('网页登录'),
+                  ],
+                ),
+              ),
               PopupMenuItem(
                 value: 'settings',
                 child: Row(

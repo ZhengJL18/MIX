@@ -18,9 +18,12 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'registry.dart';
 import 'url_safety.dart';
 import 'userscripts.dart' as us;
+import 'web_login_tool.dart';
 import 'webview_extract.dart';
 
 /// 搜索后端接口（可替换：未来接 Firecrawl/Tavily 时实现 provider）。
@@ -245,18 +248,52 @@ const Map<String, dynamic> webDownloadSchema = {
   },
 };
 
-/// 私域/需渲染平台（用 WebView 无头抓取）。
-const Set<String> _webviewHosts = {
+/// 走 WebView 无头抓取的域名（预置 + 用户自定义合并）。
+///
+/// 预置登录墙/需渲染平台；用户可在登录页之外手动添加自定义域名，
+/// 存 SharedPreferences（key `mix_webview_hosts`）。
+const Set<String> _builtinWebviewHosts = {
   'zhihu.com',
   'xiaohongshu.com',
   'tieba.baidu.com',
+  'weibo.com',
+  'bilibili.com',
+  'juejin.cn',
+  'csdn.net',
+  'douban.com',
 };
+
+/// 用户自定义的 WebView 域名（缓存，避免每次读 prefs）。
+Set<String> _customWebviewHosts = {};
+
+/// 加载用户自定义 WebView 域名（App 启动时调用一次）。
+Future<void> loadWebviewHosts() async {
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    _customWebviewHosts =
+        (prefs.getStringList('mix_webview_hosts') ?? const []).toSet();
+  } catch (_) {}
+}
+
+/// 手动添加一个自定义 WebView 域名（如 "example.com"）。
+Future<void> addWebviewHost(String domain) async {
+  final d = domain.trim().toLowerCase().replaceAll(RegExp(r'^https?://'), '');
+  if (d.isEmpty) return;
+  _customWebviewHosts.add(d);
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('mix_webview_hosts', _customWebviewHosts.toList());
+  } catch (_) {}
+}
+
+/// 当前全部 WebView 域名（预置 + 自定义）。
+Set<String> get webviewHosts => {..._builtinWebviewHosts, ..._customWebviewHosts};
 
 /// 是否需 WebView 抓取。
 bool _needsWebview(String url) {
   try {
     final host = Uri.parse(url).host.toLowerCase();
-    for (final h in _webviewHosts) {
+    for (final h in webviewHosts) {
       if (host == h || host.endsWith('.$h')) {
         return true;
       }
@@ -492,6 +529,7 @@ const Map<String, dynamic> webExtractSchema = {
 
 /// 注册 web 工具。
 void registerWebTools() {
+  registerWebLoginTool();
   registry.register(
     name: 'web_search',
     toolset: 'web',
