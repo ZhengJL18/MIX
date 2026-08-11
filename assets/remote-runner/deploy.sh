@@ -23,10 +23,10 @@ cp "$(dirname "$0")/server.py" /opt/mix-runner/server.py
 # 2. matplotlib 缓存目录（nobody 用户无 $HOME，必须指定）
 mkdir -p /tmp/mplconfig && chmod 777 /tmp/mplconfig
 
-# 3. systemd 服务
+# 3. systemd 服务（沙盒加固：文件系统只读/资源限制/禁止提权）
 cat > /etc/systemd/system/mix-runner.service <<EOF
 [Unit]
-Description=MIX remote code runner
+Description=MIX remote code runner (sandboxed)
 After=network.target
 
 [Service]
@@ -39,6 +39,23 @@ Restart=always
 RestartSec=2
 User=nobody
 NoNewPrivileges=true
+
+# ── 沙盒加固 ─────────────────────────────
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectProc=invisible
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=1024M
+CPUQuota=50%
+TasksMax=64
+LimitNOFILE=128
 
 [Install]
 WantedBy=multi-user.target

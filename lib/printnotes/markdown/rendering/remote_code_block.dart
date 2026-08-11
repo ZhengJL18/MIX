@@ -20,6 +20,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'code_engine.dart';
 
+/// 官方云端执行服务器（内置默认，用户零配置）。
+/// 想用自己的服务器时，可在代码块右上角「⚙」里覆盖地址和 token。
+const String kOfficialRemoteUrl = 'http://43.139.179.58';
+const String kOfficialRemoteToken = 'hVoHDStIXsUiTXb2rBMvpVvyipq29wDU';
+
 /// 云端运行结果。
 class RemoteRunResult {
   const RemoteRunResult({
@@ -86,12 +91,9 @@ class _RemoteCodeBlockWidgetState extends State<RemoteCodeBlockWidget> {
 
   Future<void> _onRun() async {
     final prefs = await SharedPreferences.getInstance();
-    final url = prefs.getString(_urlKey)?.trim() ?? '';
-    if (url.isEmpty) {
-      _showConfigDialog(prefs);
-      return;
-    }
-    final token = prefs.getString(_tokenKey)?.trim() ?? '';
+    // 默认走官方服务器；用户手动配置过则优先用配置。
+    final url = prefs.getString(_urlKey)?.trim() ?? kOfficialRemoteUrl;
+    final token = prefs.getString(_tokenKey)?.trim() ?? kOfficialRemoteToken;
     setState(() {
       _state = 'running';
       _result = null;
@@ -236,6 +238,18 @@ class _RemoteCodeBlockWidgetState extends State<RemoteCodeBlockWidget> {
                   color: theme.colorScheme.onSurfaceVariant,
                   fontFamily: 'monospace')),
           const Spacer(),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, size: 16),
+            tooltip: '配置云端执行服务器',
+            visualDensity: VisualDensity.compact,
+            padding: EdgeInsets.zero,
+            constraints:
+                const BoxConstraints(minWidth: 32, minHeight: 32),
+            onPressed: () async {
+              final prefs = await SharedPreferences.getInstance();
+              if (mounted) _showConfigDialog(prefs);
+            },
+          ),
           _buildAction(theme),
         ],
       ),

@@ -89,9 +89,39 @@ def _java_file_name(code):
     return (m.group(1) if m else "Main") + ".java"
 
 
+def _sandbox_setup():
+    """子进程执行前设置资源限制（沙盒第一层）。
+
+    - 虚拟内存上限：防 malloc 爆炸 / fork 炸弹撑爆内存
+    - CPU 时间：超时之外的硬兜底（防恶意代码绕过超时）
+    - 进程数：防 fork 炸弹
+    - 写文件大小：防写满磁盘
+    - 文件描述符：防耗尽
+    """
+    import resource
+    MEM_LIMIT = 512 * 1024 * 1024          # 512MB 虚拟内存
+    CPU_LIMIT = TIMEOUT + 5                 # 超时基础上再留余量
+    resource.setrlimit(resource.RLIMIT_AS, (MEM_LIMIT, MEM_LIMIT))
+    resource.setrlimit(resource.RLIMIT_CPU, (CPU_LIMIT, CPU_LIMIT))
+    resource.setrlimit(resource.RLIMIT_NPROC, (32, 32))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (64 * 1024 * 1024, 64 * 1024 * 1024))
+    resource.setrlimit(resource.RLIMIT_NOFILE, (128, 128))
+
+
+# 子进程最小环境：不继承宿主机环境变量（防泄露 token/密钥），
+# 只保留执行必需项。
+_MIN_ENV = {
+    "PATH": "/usr/bin:/bin",
+    "HOME": "/tmp",
+    "LANG": "C.UTF-8",
+    "MPLCONFIGDIR": "/tmp/mplconfig",      # matplotlib 缓存目录（nobody 无 $HOME）
+}
+
+
 def _run(args, cwd, timeout):
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
-                          timeout=timeout)
+                          timeout=timeout, preexec_fn=_sandbox_setup,
+                          env=_MIN_ENV)
 
 
 def execute(lang, code):
