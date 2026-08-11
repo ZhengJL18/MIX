@@ -30,6 +30,7 @@ import 'package:mix/printnotes/markdown/rendering/note_tags.dart';
 import 'package:mix/printnotes/markdown/link_handler.dart';
 import 'package:mix/printnotes/markdown/rendering/c_code_block.dart';
 import 'package:mix/printnotes/markdown/rendering/python_code_block.dart';
+import 'package:mix/printnotes/markdown/rendering/remote_code_block.dart';
 import 'package:mix/printnotes/markdown/rendering/code_engine.dart';
 
 MarkdownConfig theMarkdownConfigs(
@@ -53,6 +54,16 @@ MarkdownConfig theMarkdownConfigs(
     CodeEngineRegistry.register(const MermaidCodeEngine());
     CodeEngineRegistry.register(const PythonCodeEngine());
     CodeEngineRegistry.register(const CCodeEngine());
+    // 云端执行引擎：覆盖 python/c（本地引擎退役），并解锁 js/bash/java/sql。
+    CodeEngineRegistry.register(
+        const RemoteCodeEngine('python', 'Python (云端)', aliases: ['py']));
+    CodeEngineRegistry.register(const RemoteCodeEngine('c', 'C (云端)'));
+    CodeEngineRegistry.register(
+        const RemoteCodeEngine('js', 'JavaScript (云端)', aliases: ['javascript']));
+    CodeEngineRegistry.register(
+        const RemoteCodeEngine('bash', 'Bash (云端)', aliases: ['sh', 'shell']));
+    CodeEngineRegistry.register(const RemoteCodeEngine('java', 'Java (云端)'));
+    CodeEngineRegistry.register(const RemoteCodeEngine('sql', 'SQL (云端)'));
     // 命中已注册引擎（mermaid → 图，python → 原生 CPython 执行，c → libtcc 编译执行）
     // → 交给引擎。
     final engine = CodeEngineRegistry.engineFor(language);
