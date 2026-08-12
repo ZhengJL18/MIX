@@ -87,3 +87,82 @@ jobs:
           files: |
             build/app/outputs/flutter-apk/app-release.apk
           generate_release_notes: true
+
+  # Linux 桌面版：flutter build linux + dpkg-deb 打包（与 APK 并行）。
+  # flutter_inappwebview 无 Linux 实现，WebView 功能已平台降级（mermaid/
+  # 网页抓取/登录）；agent 有终端工具（run_terminal）可替代。
+  linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.x'
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # 生成 Linux 平台壳（首次构建必需；不会覆盖现有文件）。
+      - name: Generate Linux platform files
+        run: flutter create --platforms=linux .
+
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libbz2-dev
+
+      - name: Build Linux (release)
+        run: flutter build linux --release
+
+      # 打 deb 包：拼 DEBIAN/control + 可执行文件 + .desktop。
+      - name: Package deb
+        run: |
+          VERSION=${{ github.run_number }}
+          PKG=build/linux/pkg
+          rm -rf "$PKG"
+          mkdir -p "$PKG/DEBIAN" "$PKG/opt/mix" "$PKG/usr/bin" "$PKG/usr/share/applications"
+          cp -r build/linux/x64/release/bundle/* "$PKG/opt/mix/"
+          cat > "$PKG/DEBIAN/control" <<EOF
+          Package: mix
+          Version: 1.0.0+$VERSION
+          Architecture: amd64
+          Maintainer: MIX <zhengjl18@users.noreply.github.com>
+          Depends: libgtk-3-0, libstdc++6
+          Description: MIX - AI 学习助手（聊天 / 笔记库 / 云端与本地代码执行）
+          EOF
+          cat > "$PKG/usr/bin/mix" <<EOF
+          #!/bin/sh
+          exec /opt/mix/mix "\$@"
+          EOF
+          chmod +x "$PKG/usr/bin/mix"
+          cat > "$PKG/usr/share/applications/mix.desktop" <<EOF
+          [Desktop Entry]
+          Name=MIX
+          Comment=AI 学习助手
+          Exec=/opt/mix/mix
+          Terminal=false
+          Type=Application
+          Categories=Utility;
+          EOF
+          dpkg-deb --build --root-owner-group "$PKG" build/linux/mix_1.0.0+${VERSION}_amd64.deb
+
+      - name: Upload Linux deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mix-linux-deb
+          path: build/linux/mix_*.deb
+
+      # push 才发 release（PR 只构建验证）。用 update_release 追加 deb 到同一 tag。
+      - name: Publish Linux deb to Release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0+${{ github.run_number }}
+          update_release: true
+          files: build/linux/mix_*.deb
