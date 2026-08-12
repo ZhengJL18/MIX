@@ -20,7 +20,6 @@ import 'vision_settings_screen.dart';
 import 'webview_login_screen.dart';
 import '../main.dart' show checkUpdateHandler;
 import '../printnotes/constants/constants.dart' as pn;
-import '../printnotes/ui/screens/home/main_screen.dart' as printnotes;
 import '../printnotes/ui/screens/settings/settings_screen.dart' as printnotes;
 import '../theme/theme_ext.dart';
 
@@ -285,68 +284,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onChanged: (v) => _baseUrl = v,
             ),
             const SizedBox(height: 24),
-            // 「所有文件访问」权限（agent 读写公共目录 Download/Documents）。
-            Card(
-              child: ListTile(
-                leading: _checkingExternal
-                    ? SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(
-                        _externalGranted
-                            ? Icons.verified_user
-                            : Icons.folder_open,
-                        color: _externalGranted
-                            ? context.appPalette.success
-                            : Theme.of(context).colorScheme.primary,
-                      ),
-                title: const Text('所有文件访问权限'),
-                subtitle: Text(
-                  _checkingExternal
-                      ? '检查中…'
-                      : _externalGranted
-                          ? '已授予 —— agent 可读写公共目录（Download/Documents）'
-                          : '未授予 —— agent 只能访问 App 自己的文件空间',
-                ),
-                trailing: _checkingExternal
-                    ? null
-                    : _externalGranted
-                        ? Icon(Icons.check, color: context.appPalette.success)
-                        : TextButton(
-                            onPressed: _requestExternalPermission,
-                            child: const Text('去授权'),
-                          ),
-              ),
+            // ── 权限与账户 ──
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Text('权限与账户',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
             ),
-            const SizedBox(height: 8),
-            // 笔记分区：笔记库 + 笔记设置（与 agent 共用 documents/notes）。
             Card(
               child: Column(
                 children: [
                   ListTile(
-                    leading: const Icon(Icons.menu_book),
-                    title: const Text('笔记库'),
-                    subtitle: const Text('浏览 / 编辑笔记（与 agent 共用目录）'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => const printnotes.MainPage()),
-                      );
-                    },
+                    leading: _checkingExternal
+                        ? SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(
+                            _externalGranted
+                                ? Icons.verified_user
+                                : Icons.folder_open,
+                            color: _externalGranted
+                                ? context.appPalette.success
+                                : Theme.of(context).colorScheme.primary,
+                          ),
+                    title: const Text('所有文件访问权限'),
+                    subtitle: Text(
+                      _checkingExternal
+                          ? '检查中…'
+                          : _externalGranted
+                              ? '已授予 —— agent 可读写公共目录（Download/Documents）'
+                              : '未授予 —— agent 只能访问 App 自己的文件空间',
+                    ),
+                    trailing: _checkingExternal
+                        ? null
+                        : _externalGranted
+                            ? Icon(Icons.check,
+                                color: context.appPalette.success)
+                            : TextButton(
+                                onPressed: _requestExternalPermission,
+                                child: const Text('去授权'),
+                              ),
                   ),
                   const Divider(height: 1),
                   ListTile(
-                    leading: const Icon(Icons.notes),
-                    title: const Text('笔记设置'),
-                    subtitle: const Text('排序 / 布局 / LaTeX / 代码块主题'),
+                    leading: const Icon(Icons.login),
+                    title: const Text('网页登录'),
+                    subtitle: const Text('登录后爬虫自动带登录态'),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                            builder: (_) => const printnotes.SettingsScreen()),
+                            builder: (_) => const WebViewLoginScreen()),
                       );
                     },
                   ),
@@ -354,34 +343,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            // 管理入口：对话历史 + 技能。
+            // ── 模型与智能 ──
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Text('模型与智能',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
             Card(
               child: Column(
                 children: [
-                  ListTile(
-                    leading: const Icon(Icons.history),
-                    title: const Text('对话历史'),
-                    subtitle: const Text('浏览 / 查看 / 删除历史会话'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const HistoryScreen()),
-                      );
-                    },
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.menu_book),
-                    title: const Text('技能管理'),
-                    subtitle: const Text('查看 / 创建 / 删除技能'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const SkillsScreen()),
-                      );
-                    },
-                  ),
-                  const Divider(height: 1),
                   ListTile(
                     leading: const Icon(Icons.visibility),
                     title: const Text('视觉模型'),
@@ -422,44 +392,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const Divider(height: 1),
                   ListTile(
-                    leading: const Icon(Icons.shield_outlined),
-                    title: const Text('云端保险柜'),
-                    subtitle: const Text('加密备份到你的云服务器（存档式）'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => const VaultScreen()),
-                      );
-                    },
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.login),
-                    title: const Text('网页登录'),
-                    subtitle: const Text('登录后爬虫自动带登录态'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => const WebViewLoginScreen()),
-                      );
-                    },
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
-                    leading: const Icon(Icons.palette_outlined),
-                    title: const Text('主题'),
-                    subtitle: const Text('配色方案 + 明暗模式'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const ThemeScreen()),
-                      );
-                    },
-                  ),
-                  const Divider(height: 1),
-                  ListTile(
                     leading: const Icon(Icons.sticky_note_2_outlined),
                     title: const Text('记忆管理'),
                     subtitle: const Text('查看/编辑 agent 的长期记忆'),
@@ -468,6 +400,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Navigator.of(context).push(
                         MaterialPageRoute(
                             builder: (_) => const MemoryScreen()),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            // ── 内容与数据 ──
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Text('内容与数据',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            Card(
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.notes),
+                    title: const Text('笔记设置'),
+                    subtitle: const Text('排序 / 布局 / LaTeX / 代码块主题'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const printnotes.SettingsScreen()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.history),
+                    title: const Text('对话历史'),
+                    subtitle: const Text('浏览 / 查看 / 删除历史会话'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const HistoryScreen()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.menu_book),
+                    title: const Text('技能管理'),
+                    subtitle: const Text('查看 / 创建 / 删除技能'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const SkillsScreen()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.shield_outlined),
+                    title: const Text('云端保险柜'),
+                    subtitle: const Text('加密备份到你的云服务器（存档式）'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const VaultScreen()),
                       );
                     },
                   ),
@@ -538,10 +532,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            // 系统：检查更新 / GitHub / 版本。
+            // ── 外观与系统 ──
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Text('外观与系统',
+                  style: TextStyle(fontWeight: FontWeight.w600)),
+            ),
+            // 系统：主题 / 检查更新 / GitHub / 版本。
             Card(
               child: Column(
                 children: [
+                  ListTile(
+                    leading: const Icon(Icons.palette_outlined),
+                    title: const Text('主题'),
+                    subtitle: const Text('配色方案 + 明暗模式'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const ThemeScreen()),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
                   ListTile(
                     leading: const Icon(Icons.system_update_alt),
                     title: const Text('检查更新'),

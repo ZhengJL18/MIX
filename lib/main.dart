@@ -1687,17 +1687,6 @@ class _ChatScreenState extends State<ChatScreen> {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const FileBrowserScreen()),
                   );
-                case 'web_login':
-                  if (Platform.isLinux) {
-                    // Linux 桌面：无内嵌 WebView，系统浏览器打开登录页。
-                    launchUrl(Uri.parse('https://www.zhihu.com/'),
-                        mode: LaunchMode.externalApplication);
-                  } else {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                          builder: (_) => const WebViewLoginScreen()),
-                    );
-                  }
                 case 'workspace':
                   Navigator.of(context).push(
                     MaterialPageRoute(
@@ -1712,7 +1701,9 @@ class _ChatScreenState extends State<ChatScreen> {
                   );
               }
             },
+            // 分组：会话 / 内容 / 系统。工作区仅 Linux 桌面显示（Android 上用不到）。
             itemBuilder: (_) => [
+              // ── 会话 ──
               PopupMenuItem(
                 value: 'new_session',
                 child: Row(
@@ -1723,7 +1714,6 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
               ),
-              PopupMenuDivider(),
               PopupMenuItem(
                 value: 'plan',
                 child: Row(
@@ -1737,6 +1727,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               PopupMenuDivider(),
+              // ── 内容 ──
               PopupMenuItem(
                 value: 'notes',
                 child: Row(
@@ -1744,16 +1735,6 @@ class _ChatScreenState extends State<ChatScreen> {
                     Icon(Icons.menu_book_outlined, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
                     Text('笔记库'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'theme',
-                child: Row(
-                  children: [
-                    Icon(Icons.palette_outlined, size: 18, color: context.appPalette.textSecondary),
-                    SizedBox(width: 8),
-                    Text('主题'),
                   ],
                 ),
               ),
@@ -1768,26 +1749,28 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
               PopupMenuDivider(),
+              // ── 系统 ──
               PopupMenuItem(
-                value: 'web_login',
+                value: 'theme',
                 child: Row(
                   children: [
-                    Icon(Icons.login, size: 18, color: context.appPalette.textSecondary),
+                    Icon(Icons.palette_outlined, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
-                    Text('网页登录'),
+                    Text('主题'),
                   ],
                 ),
               ),
-              PopupMenuItem(
-                value: 'workspace',
-                child: Row(
-                  children: [
-                    Icon(Icons.folder_open, size: 18, color: context.appPalette.textSecondary),
-                    SizedBox(width: 8),
-                    Text('工作区'),
-                  ],
+              if (Platform.isLinux)
+                PopupMenuItem(
+                  value: 'workspace',
+                  child: Row(
+                    children: [
+                      Icon(Icons.folder_open, size: 18, color: context.appPalette.textSecondary),
+                      SizedBox(width: 8),
+                      Text('工作区'),
+                    ],
+                  ),
                 ),
-              ),
               PopupMenuItem(
                 value: 'settings',
                 child: Row(
