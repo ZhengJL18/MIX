@@ -55,8 +55,8 @@ import 'tools/memory_tool.dart';
 import 'tools/moa_tool.dart';
 import 'tools/model_tools.dart';
 import 'tools/notes_tools.dart';
-import 'tools/bin_extract_tool.dart';
 import 'tools/convert_tools.dart';
+import 'tools/read_doc_tool.dart';
 import 'tools/terminal_tool.dart';
 import 'tools/session_search_tool.dart';
 import 'tools/skills_tool.dart';
@@ -424,7 +424,7 @@ class _ChatScreenState extends State<ChatScreen> {
     registerVisionTool();
     registerStudyTools();
     registerNotesTools();
-    registerBinExtractTool();
+    registerReadDocTool();
     registerConvertTools();
     // Linux 桌面：agent 获得终端能力（curl/pdftotext/任意命令）。
     if (Platform.isLinux) {

@@ -46,42 +46,14 @@ class RemoteAssetManager {
   static final RemoteAssetManager instance = RemoteAssetManager._();
 
   /// 全 App 注册的远程资源表（key = 资源逻辑名）。
+  /// 仅 mermaid 仍按需下载；bin_extract 已退役（fflate/sqljs/pdfjs 随之移除，
+  /// read_doc 改用纯 Dart archive + 云端 /extract）。
   final Map<String, RemoteAssetSpec> _specs = {
     'mermaid': RemoteAssetSpec(
       name: 'mermaid.min.js',
       url:
           'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/mermaid/mermaid.min.js',
       sizeMB: 3.5,
-    ),
-    'fflate': RemoteAssetSpec(
-      name: 'fflate.min.js',
-      url:
-          'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/js/fflate.min.js',
-      sizeMB: 0.03,
-    ),
-    'sqljs': RemoteAssetSpec(
-      name: 'sql-wasm.js',
-      url:
-          'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/js/sql-wasm.js',
-      sizeMB: 0.05,
-    ),
-    'sqljs-wasm': RemoteAssetSpec(
-      name: 'sql-wasm.wasm',
-      url:
-          'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/js/sql-wasm.wasm',
-      sizeMB: 0.65,
-    ),
-    'pdfjs': RemoteAssetSpec(
-      name: 'pdf.min.js',
-      url:
-          'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/js/pdf.min.js',
-      sizeMB: 0.32,
-    ),
-    'pdfjs-worker': RemoteAssetSpec(
-      name: 'pdf.worker.min.js',
-      url:
-          'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/js/pdf.worker.min.js',
-      sizeMB: 1.1,
     ),
   };
 

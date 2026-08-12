@@ -235,6 +235,72 @@ Future<Map<String, String>> _loadExtractConfig() async {
   };
 }
 
+/// 云端 /extract 调用（read_doc 等工具复用）。返回服务器 JSON，出错返回
+/// {'error': ...}，文件不存在返回 null。
+Future<Map<String, dynamic>?> cloudExtractRequest(
+  String task, {
+  required String filePath,
+}) async {
+  final f = File(filePath);
+  if (!f.existsSync()) return null;
+  final bytes = await f.readAsBytes();
+  final cfg = await _loadExtractConfig();
+  final resp = await http
+      .post(
+        Uri.parse('${cfg['url']}/extract'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'token': cfg['token'],
+          'task': task,
+          'filename': filePath.split('/').last,
+          'data': base64Encode(bytes),
+        }),
+      )
+      .timeout(const Duration(minutes: 3));
+  final Map<String, dynamic> json;
+  try {
+    json = jsonDecode(resp.body) as Map<String, dynamic>;
+  } catch (_) {
+    return {'error': '服务器响应异常 HTTP ${resp.statusCode}（未部署 /extract？）'};
+  }
+  if (resp.statusCode != 200) {
+    return {'error': 'HTTP ${resp.statusCode} ${json['error'] ?? ''}'};
+  }
+  return json;
+}
+
+/// 云端 /extract 调用（直接发 bytes，供非文件来源用，如 GBK 文本解码）。
+/// 出错返回 {'error': ...}。
+Future<Map<String, dynamic>?> cloudExtractBytes(
+  String task, {
+  required Uint8List bytes,
+  required String filename,
+}) async {
+  final cfg = await _loadExtractConfig();
+  final resp = await http
+      .post(
+        Uri.parse('${cfg['url']}/extract'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'token': cfg['token'],
+          'task': task,
+          'filename': filename,
+          'data': base64Encode(bytes),
+        }),
+      )
+      .timeout(const Duration(minutes: 3));
+  final Map<String, dynamic> json;
+  try {
+    json = jsonDecode(resp.body) as Map<String, dynamic>;
+  } catch (_) {
+    return {'error': '服务器响应异常 HTTP ${resp.statusCode}'};
+  }
+  if (resp.statusCode != 200) {
+    return {'error': 'HTTP ${resp.statusCode} ${json['error'] ?? ''}'};
+  }
+  return json;
+}
+
 /// cloud_extract：把大 PDF / 扫描件 / 格式转换丢给云端 /extract 处理。
 Future<String> _handleCloudExtract(Map<String, dynamic> args,
     [Map<String, dynamic>? kwargs]) async {

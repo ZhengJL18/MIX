@@ -23,6 +23,7 @@ MIX 云端代码执行服务器（单文件、零第三方依赖，Python 3.8+�
 """
 import base64
 import glob
+import io
 import json
 import os
 import re
@@ -276,12 +277,201 @@ def extract_md_to_pdf(data, filename):
     return _md_convert(data, filename, ".pdf", ["--pdf-engine=weasyprint"])
 
 
+def _pandoc_to_plain(data, filename, ext):
+    """pandoc 把 Office 文档转纯文本（docx/pptx 等）。"""
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as f:
+        f.write(data)
+        f.flush()
+        inpath = f.name
+    try:
+        cp = subprocess.run(
+            ["pandoc", inpath, "-t", "plain"],
+            timeout=EXTRACT_TIMEOUT, capture_output=True)
+        if cp.returncode != 0:
+            return {"error": "pandoc 失败: %s" % (cp.stderr or "pandoc 未安装").strip()}
+        return {"text": cp.stdout.decode("utf-8", errors="replace")[:EXTRACT_MAX_TEXT]}
+    finally:
+        try:
+            os.remove(inpath)
+        except OSError:
+            pass
+
+
+def extract_docx_text(data, filename):
+    return _pandoc_to_plain(data, filename, ".docx")
+
+
+def extract_pptx_text(data, filename):
+    return _pandoc_to_plain(data, filename, ".pptx")
+
+
+def extract_xlsx_text(data, filename):
+    """openpyxl：读所有 sheet 的行（cell → 文本）。"""
+    import io
+    try:
+        import openpyxl
+    except ImportError:
+        return {"error": "xlsx_text: 服务器缺 openpyxl（pip install openpyxl）"}
+    wb = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    out = []
+    for ws in wb.worksheets:
+        out.append("== Sheet: %s (%d 行) ==" % (ws.title, ws.max_row))
+        for row in ws.iter_rows(values_only=True):
+            vals = [str(c) for c in row if c is not None]
+            if vals:
+                out.append(" | ".join(vals))
+    wb.close()
+    return {"text": "\n".join(out)[:EXTRACT_MAX_TEXT]}
+
+
+def extract_sqlite_text(data, filename):
+    """python sqlite3：列表 + 每表前 30 行。"""
+    import sqlite3
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        f.write(data)
+        f.flush()
+        dbfile = f.name
+    try:
+        conn = sqlite3.connect(dbfile)
+        cur = conn.cursor()
+        tables = [r[0] for r in cur.execute(
+            "SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name")]
+        out = ["SQLite 数据库（表/视图: %d）" % len(tables), ", ".join(tables)]
+        for t in tables[:20]:
+            try:
+                cols = [c[1] for c in cur.execute('PRAGMA table_info("%s")' % t.replace('"','""'))]
+                out.append("\n### %s (列: %s)" % (t, ", ".join(cols)))
+                rows = cur.execute('SELECT * FROM "%s" LIMIT 30' % t.replace('"','""')).fetchall()
+                for r in rows:
+                    out.append("  " + " | ".join("NULL" if v is None else str(v) for v in r))
+            except Exception as e:
+                out.append("  读取 %s 失败: %s" % (t, e))
+        conn.close()
+        return {"text": "\n".join(out)[:EXTRACT_MAX_TEXT]}
+    finally:
+        try:
+            os.remove(dbfile)
+        except OSError:
+            pass
+
+
+_TXT_EXT = ('.txt', '.md', '.csv', '.json', '.xml', '.html', '.htm',
+            '.js', '.ts', '.py', '.java', '.c', '.cpp', '.h', '.dart',
+            '.yaml', '.yml', '.toml', '.ini', '.conf', '.log', '.sql',
+            '.sh', '.bat', '.css', '.less', '.go', '.rs', '.rb', '.php')
+
+
+def extract_zip_text(data, filename):
+    """zipfile：识别 docx/xlsx/epub 容器，否则列清单 + 提文本文件。"""
+    import zipfile, re, html
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data))
+    except Exception as e:
+        return {"error": "zip 打开失败: %s" % e}
+    names = z.namelist()
+    # docx：word/document.xml 的 <w:t>
+    if 'word/document.xml' in names:
+        xml = z.read('word/document.xml').decode('utf-8', errors='replace')
+        texts = [html.unescape(t) for t in re.findall(r'<w:t[^>]*>(.*?)</w:t>', xml, re.S)]
+        return {"kind": "docx", "text": "\n".join(t for t in texts if t.strip())[:EXTRACT_MAX_TEXT]}
+    # xlsx：sharedStrings + 各 sheet
+    if any(n.startswith('xl/worksheets/sheet') for n in names):
+        out = ["XLSX (sheet: %d)" % len([n for n in names if n.startswith('xl/worksheets/')])]
+        if 'xl/sharedStrings.xml' in names:
+            shared = re.findall(r'<t[^>]*>(.*?)</t>', z.read('xl/sharedStrings.xml').decode('utf-8', errors='replace'), re.S)
+        else:
+            shared = []
+        for n in sorted(n for n in names if n.startswith('xl/worksheets/sheet')):
+            xml = z.read(n).decode('utf-8', errors='replace')
+            out.append("### " + n)
+            for row in re.findall(r'<row[^>]*>(.*?)</row>', xml, re.S):
+                cells = re.findall(r'<c[^>]*?(?:t="(\w+)")?[^>]*>(?:<v>(.*?)</v>|<is><t>(.*?)</t></is>)?</c>', row, re.S)
+                vals = []
+                for t, v, is_ in cells:
+                    if t == 's' and v:
+                        try:
+                            vals.append(shared[int(v)] if int(v) < len(shared) else v)
+                        except Exception:
+                            vals.append(v)
+                    elif is_:
+                        vals.append(is_)
+                    elif v:
+                        vals.append(v)
+                if vals:
+                    out.append(" | ".join(vals))
+        return {"kind": "xlsx", "text": "\n".join(out)[:EXTRACT_MAX_TEXT]}
+    # epub
+    if 'META-INF/container.xml' in names:
+        out = ["EPUB (html: %d)" % len([n for n in names if n.endswith(('.html', '.xhtml'))])]
+        for n in sorted(nn for nn in names if nn.endswith(('.html', '.xhtml')))[:30]:
+            htmltext = z.read(n).decode('utf-8', errors='replace')
+            text = re.sub(r'<[^>]+>', ' ', htmltext)
+            import re as _re
+            text = _re.sub(r'\s+', ' ', text).strip()
+            if text:
+                out.append("\n### " + n + "\n" + text[:2000])
+        return {"kind": "epub", "text": "\n".join(out)[:EXTRACT_MAX_TEXT]}
+    # 通用 zip
+    out = ["ZIP (%d 项)" % len(names)]
+    for n in names:
+        out.append("  - %s" % n)
+    textfiles = [n for n in names if n.lower().endswith(_TXT_EXT)]
+    for n in textfiles[:20]:
+        try:
+            content = z.read(n).decode('utf-8', errors='replace')
+            out.append("\n### %s\n%s" % (n, content[:2000]))
+        except Exception:
+            pass
+    return {"kind": "zip", "text": "\n".join(out)[:EXTRACT_MAX_TEXT]}
+
+
+def extract_tar_text(data, filename):
+    """tarfile：列清单 + 提文本文件（含 tar.gz）。"""
+    import tarfile, io
+    try:
+        t = tarfile.open(fileobj=io.BytesIO(data))
+        names = t.getnames()
+    except Exception as e:
+        return {"error": "tar 打开失败: %s" % e}
+    out = ["TAR (%d 项)" % len(names)]
+    for n in names[:80]:
+        out.append("  - %s" % n)
+    textfiles = [n for n in names if n.lower().endswith(_TXT_EXT)]
+    for n in textfiles[:20]:
+        try:
+            f = t.extractfile(n)
+            if f:
+                content = f.read().decode('utf-8', errors='replace')
+                out.append("\n### %s\n%s" % (n, content[:2000]))
+        except Exception:
+            pass
+    return {"kind": "tar", "text": "\n".join(out)[:EXTRACT_MAX_TEXT]}
+
+
+def extract_text_decode(data, filename):
+    """文本解码：先 utf-8，失败试 gbk（本地无 GBK 支持时走这里）。"""
+    for enc in ('utf-8', 'gbk'):
+        try:
+            return {"text": data.decode(enc)[:EXTRACT_MAX_TEXT], "encoding": enc}
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return {"text": data.decode('utf-8', errors='replace')[:EXTRACT_MAX_TEXT],
+            "encoding": "utf-8(replace)"}
+
+
 def extract(task, data, filename):
     handlers = {
         "pdf_text": extract_pdf_text,
         "ocr": extract_ocr,
         "md_to_docx": extract_md_to_docx,
         "md_to_pdf": extract_md_to_pdf,
+        "docx_text": extract_docx_text,
+        "pptx_text": extract_pptx_text,
+        "xlsx_text": extract_xlsx_text,
+        "sqlite_text": extract_sqlite_text,
+        "zip_text": extract_zip_text,
+        "tar_text": extract_tar_text,
+        "text_decode": extract_text_decode,
     }
     fn = handlers.get(task)
     if fn is None:
