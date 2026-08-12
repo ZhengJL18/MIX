@@ -89,3 +89,6 @@ String? _currentCwd;
 void rememberFileToolsCwd(String? cwd) {
   _currentCwd = cwd;
 }
+
+/// 读取当前 file_tools cwd（无则 null）。
+String? currentFileToolsCwd() => _currentCwd;

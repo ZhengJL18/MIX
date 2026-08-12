@@ -490,6 +490,14 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  /// 当前工作区路径（给 system prompt 用）；无工作区返回 null。
+  String? _workspaceForPrompt() {
+    try {
+      return currentFileToolsCwd();
+    } catch (_) {}
+    return null;
+  }
+
   /// 应用新工作区：切 file_tools cwd + git cwd，空路径恢复默认。
   Future<void> _applyWorkspace(String path) async {
     if (path.isEmpty) {
@@ -1337,9 +1345,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 按工作流构建系统提示（人设 + 委派/计划策略 + 工程检索 + 技能 + 外部权限）。
   String _buildWorkflowPrompt({String contextBlock = ''}) {
+    // 注入工作区路径（coding prompt 的 {workspace} 占位符）。
+    String? workspace;
+    try {
+      workspace = _workspaceForPrompt();
+    } catch (_) {}
     var prompt = _currentWorkflow.buildSystemPrompt(
       contextBlock: contextBlock,
       skillBlock: buildSkillsSystemPrompt(),
+      workspace: workspace ?? '',
     );
     // 公司模式：追加部门列表，让 CEO 知道有哪些团队可用。
     if (_currentWorkflow.id == 'company') {
