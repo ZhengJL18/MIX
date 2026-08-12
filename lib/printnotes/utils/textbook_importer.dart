@@ -224,15 +224,21 @@ String _sanitizeDirName(String name) {
       .replaceAll(RegExp(r'\s+'), '_');
 }
 
-/// 流式下载到文件（照 webDownloadTool，超时放宽）。
+/// 流式下载到文件（照 webDownloadTool，超时放宽，避免大 tarball 占内存）。
 Future<void> _downloadToFile(String url, File file) async {
-  final resp = await http
-      .get(Uri.parse(url))
+  final request = http.Request('GET', Uri.parse(url));
+  final resp = await http.Client()
+      .send(request)
       .timeout(const Duration(minutes: 5));
   if (resp.statusCode != 200) {
     throw StateError('下载失败 HTTP ${resp.statusCode}');
   }
-  await file.writeAsBytes(resp.bodyBytes, flush: true);
+  final sink = file.openWrite();
+  await for (final chunk in resp.stream) {
+    sink.add(chunk);
+  }
+  await sink.flush();
+  await sink.close();
 }
 
 String _decodeUtf8(List<int> bytes) =>
