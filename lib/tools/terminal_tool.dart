@@ -7,6 +7,7 @@
 /// 这是 Linux 版 agent 的"万能工具"，能力比 Android 更强。
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
