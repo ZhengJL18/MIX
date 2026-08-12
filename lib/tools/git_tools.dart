@@ -14,6 +14,21 @@ import 'registry.dart';
 
 bool _sslInitialized = false;
 
+/// 默认 git 工作目录（工作区设置后，git 工具 path 可省略）。
+String? _gitCwd;
+
+/// 设置 git 默认工作目录（工作区切换时调用）。
+void setGitCwd(String? path) {
+  _gitCwd = path;
+}
+
+/// git 工具路径解析：path 为空时用默认工作目录。
+String _resolvePath(String? path) {
+  if (path != null && path.trim().isNotEmpty) return path.trim();
+  if (_gitCwd != null && _gitCwd!.isNotEmpty) return _gitCwd!;
+  return Directory.current.path;
+}
+
 /// 初始化 libgit2 的 SSL 证书配置（Android 必需）。
 ///
 /// Android 系统证书存储不在标准路径，libgit2 默认找不到 CA → HTTPS 报
@@ -358,7 +373,7 @@ const Map<String, dynamic> _gitInitSchema = {
     'properties': {
       'path': {'type': 'string', 'description': 'Directory to init the repo in'},
     },
-    'required': ['path'],
+    'required': [],
   },
 };
 
@@ -372,7 +387,7 @@ const Map<String, dynamic> _gitStatusSchema = {
     'properties': {
       'path': {'type': 'string', 'description': 'Repository directory'},
     },
-    'required': ['path'],
+    'required': [],
   },
 };
 
@@ -391,7 +406,7 @@ const Map<String, dynamic> _gitAddSchema = {
         'description': 'Files to stage. Omit or empty to stage all.',
       },
     },
-    'required': ['path'],
+    'required': [],
   },
 };
 
@@ -408,7 +423,7 @@ const Map<String, dynamic> _gitCommitSchema = {
       'author_name': {'type': 'string', 'description': 'Optional author name'},
       'author_email': {'type': 'string', 'description': 'Optional author email'},
     },
-    'required': ['path', 'message'],
+    'required': ['message'],
   },
 };
 
@@ -421,7 +436,7 @@ const Map<String, dynamic> _gitLogSchema = {
       'path': {'type': 'string', 'description': 'Repository directory'},
       'limit': {'type': 'integer', 'description': 'Max commits (default 20)'},
     },
-    'required': ['path'],
+    'required': [],
   },
 };
 
@@ -433,12 +448,16 @@ const Map<String, dynamic> _gitBranchSchema = {
     'properties': {
       'path': {'type': 'string', 'description': 'Repository directory'},
     },
-    'required': ['path'],
+    'required': [],
   },
 };
 
 String _arg(Map<String, dynamic> args, String key, [String? def]) =>
     args[key] as String? ?? def ?? '';
+
+/// 从 args 读 path；未提供时用默认工作目录（工作区设置后 path 可省略）。
+String _pathArg(Map<String, dynamic> args) =>
+    _resolvePath(_arg(args, 'path'));
 
 void registerGitTools() {
   registry.register(
@@ -452,14 +471,14 @@ void registerGitTools() {
     name: 'git_init',
     toolset: 'git',
     schema: _gitInitSchema,
-    handler: (args, [kwargs]) => gitInit(path: _arg(args, 'path')),
+    handler: (args, [kwargs]) => gitInit(path: _pathArg(args)),
     emoji: '🐙',
   );
   registry.register(
     name: 'git_status',
     toolset: 'git',
     schema: _gitStatusSchema,
-    handler: (args, [kwargs]) => gitStatus(path: _arg(args, 'path')),
+    handler: (args, [kwargs]) => gitStatus(path: _pathArg(args)),
     emoji: '🐙',
   );
   registry.register(
@@ -467,7 +486,7 @@ void registerGitTools() {
     toolset: 'git',
     schema: _gitAddSchema,
     handler: (args, [kwargs]) => gitAdd(
-          path: _arg(args, 'path'),
+          path: _pathArg(args),
           files: (args['files'] as List?)?.whereType<String>().toList() ?? const [],
         ),
     emoji: '🐙',
@@ -477,7 +496,7 @@ void registerGitTools() {
     toolset: 'git',
     schema: _gitCommitSchema,
     handler: (args, [kwargs]) => gitCommit(
-          path: _arg(args, 'path'),
+          path: _pathArg(args),
           message: _arg(args, 'message'),
           authorName: args['author_name'] as String?,
           authorEmail: args['author_email'] as String?,
@@ -489,7 +508,7 @@ void registerGitTools() {
     toolset: 'git',
     schema: _gitLogSchema,
     handler: (args, [kwargs]) => gitLog(
-          path: _arg(args, 'path'),
+          path: _pathArg(args),
           limit: args['limit'] as int? ?? 20,
         ),
     emoji: '🐙',
@@ -498,14 +517,14 @@ void registerGitTools() {
     name: 'git_branch',
     toolset: 'git',
     schema: _gitBranchSchema,
-    handler: (args, [kwargs]) => gitBranch(path: _arg(args, 'path')),
+    handler: (args, [kwargs]) => gitBranch(path: _pathArg(args)),
     emoji: '🐙',
   );
   registry.register(
     name: 'git_diff',
     toolset: 'git',
     schema: _gitDiffSchema,
-    handler: (args, [kwargs]) => gitDiff(path: _arg(args, 'path')),
+    handler: (args, [kwargs]) => gitDiff(path: _pathArg(args)),
     emoji: '🐙',
   );
   registry.register(
@@ -529,7 +548,7 @@ void registerGitTools() {
     handler: (args, [kwargs]) async {
       await ensureGitSsl();
       return gitPush(
-        path: _arg(args, 'path'),
+        path: _pathArg(args),
         token: args['token'] as String?,
         branch: _arg(args, 'branch', 'master'),
       );
@@ -543,7 +562,7 @@ void registerGitTools() {
     handler: (args, [kwargs]) async {
       await ensureGitSsl();
       return gitPull(
-        path: _arg(args, 'path'),
+        path: _pathArg(args),
         token: args['token'] as String?,
       );
     },
@@ -561,7 +580,7 @@ const Map<String, dynamic> _gitDiffSchema = {
     'properties': {
       'path': {'type': 'string', 'description': 'Repository directory'},
     },
-    'required': ['path'],
+    'required': [],
   },
 };
 
@@ -590,7 +609,7 @@ const Map<String, dynamic> _gitPushSchema = {
       'token': {'type': 'string', 'description': 'Optional GitHub PAT token'},
       'branch': {'type': 'string', 'description': 'Branch to push (default master)'},
     },
-    'required': ['path'],
+    'required': [],
   },
 };
 
@@ -603,6 +622,6 @@ const Map<String, dynamic> _gitPullSchema = {
       'path': {'type': 'string', 'description': 'Repository directory'},
       'token': {'type': 'string', 'description': 'Optional GitHub PAT token'},
     },
-    'required': ['path'],
+    'required': [],
   },
 };

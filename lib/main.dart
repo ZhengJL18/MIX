@@ -39,6 +39,7 @@ import 'screens/file_browser_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/theme_screen.dart';
 import 'screens/webview_login_screen.dart';
+import 'screens/workspace_screen.dart';
 import 'services/multi_agent.dart';
 import 'services/storage_permission.dart';
 import 'services/study_engine.dart';
@@ -487,6 +488,23 @@ class _ChatScreenState extends State<ChatScreen> {
         const SnackBar(content: Text('已是最新版本')),
       );
     }
+  }
+
+  /// 应用新工作区：切 file_tools cwd + git cwd，空路径恢复默认。
+  Future<void> _applyWorkspace(String path) async {
+    if (path.isEmpty) {
+      try {
+        final dir = (await getApplicationDocumentsDirectory()).path;
+        configureFileTools(cwd: dir, allowExternal: true);
+        rememberFileToolsCwd(dir);
+      } catch (_) {
+        configureFileTools(cwd: null);
+      }
+      return;
+    }
+    configureFileTools(cwd: path, allowExternal: true);
+    rememberFileToolsCwd(path);
+    setGitCwd(path);
   }
 
   /// web_login 工具回调：打开内嵌登录页，返回用户操作结果给 agent。
@@ -1354,7 +1372,19 @@ class _ChatScreenState extends State<ChatScreen> {
       configureFileTools(cwd: null);
       return;
     }
-    rememberFileToolsCwd(dir);
+    // 若用户设置了工作区（Linux 桌面），切到该目录作为 agent 的 cwd。
+    String? workspace;
+    try {
+      workspace = await loadWorkspacePath();
+      if (workspace != null && workspace.isNotEmpty) {
+        rememberFileToolsCwd(workspace);
+        configureFileTools(cwd: workspace, allowExternal: true);
+      } else {
+        rememberFileToolsCwd(dir);
+      }
+    } catch (_) {
+      rememberFileToolsCwd(dir);
+    }
     try {
       // 按「所有文件访问」权限设置 file_tools：cwd = documents + 外部访问开关。
       await syncExternalAccessPermission(fallbackCwd: dir);
@@ -1654,6 +1684,14 @@ class _ChatScreenState extends State<ChatScreen> {
                           builder: (_) => const WebViewLoginScreen()),
                     );
                   }
+                case 'workspace':
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => WorkspaceScreen(
+                        onWorkspaceSelected: _applyWorkspace,
+                      ),
+                    ),
+                  );
                 case 'settings':
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => SettingsScreen()),
@@ -1723,6 +1761,16 @@ class _ChatScreenState extends State<ChatScreen> {
                     Icon(Icons.login, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
                     Text('网页登录'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'workspace',
+                child: Row(
+                  children: [
+                    Icon(Icons.folder_open, size: 18, color: context.appPalette.textSecondary),
+                    SizedBox(width: 8),
+                    Text('工作区'),
                   ],
                 ),
               ),

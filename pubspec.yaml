@@ -46,6 +46,8 @@ dependencies:
   flutter_inappwebview: ^6.1.5
   archive: ^4.0.5
   git2dart: ^0.5.4
+  # 桌面端工作区目录选择（仅 Linux 使用；Android 不触发）。
+  file_selector: ^1.0.3
   git2dart_binaries: ^1.12.1
   pointycastle: ^4.0.0
   package_info_plus: ^8.3.0
