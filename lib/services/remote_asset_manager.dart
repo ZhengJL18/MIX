@@ -53,18 +53,6 @@ class RemoteAssetManager {
           'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/mermaid/mermaid.min.js',
       sizeMB: 3.5,
     ),
-    'pdfjs': RemoteAssetSpec(
-      name: 'pdf.min.js',
-      url:
-          'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/pdfjs/pdf.min.js',
-      sizeMB: 0.3,
-    ),
-    'pdfjs-worker': RemoteAssetSpec(
-      name: 'pdf.worker.min.js',
-      url:
-          'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/pdfjs/pdf.worker.min.js',
-      sizeMB: 1.1,
-    ),
     'fflate': RemoteAssetSpec(
       name: 'fflate.min.js',
       url:

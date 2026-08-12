@@ -132,20 +132,6 @@ class GridTileItem extends StatelessWidget {
     if (item is File) {
       if (fileTypeChecker(item.path) == CFileType.image) {
         return Image.file(item);
-      } else if (fileTypeChecker(item.path) == CFileType.pdf) {
-        return ListTile(
-          leading: Icon(
-            Icons.picture_as_pdf,
-            size: 34,
-            color: Theme.of(context).colorScheme.secondary,
-          ),
-          title: Text(
-            itemName,
-            textAlign: TextAlign.start,
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
-          ),
-        );
       } else if (fileTypeChecker(item.path) == CFileType.sketch) {
         return ListTile(
           leading: Icon(

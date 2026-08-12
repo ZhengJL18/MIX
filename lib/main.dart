@@ -57,7 +57,6 @@ import 'tools/moa_tool.dart';
 import 'tools/model_tools.dart';
 import 'tools/web_login_tool.dart';
 import 'tools/notes_tools.dart';
-import 'tools/pdf_extract_tool.dart';
 import 'tools/bin_extract_tool.dart';
 import 'tools/session_search_tool.dart';
 import 'tools/skills_tool.dart';
@@ -425,7 +424,6 @@ class _ChatScreenState extends State<ChatScreen> {
     registerVisionTool();
     registerStudyTools();
     registerNotesTools();
-    registerPdfExtractTool();
     registerBinExtractTool();
     studyListHandler = _studyList;
     studyQuestionHandler = _studyQuestion;

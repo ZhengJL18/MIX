@@ -4,7 +4,6 @@ import 'package:mix/printnotes/constants/constants.dart';
 enum CFileType {
   note,
   image,
-  pdf,
   sketch,
   unknown,
 }
@@ -15,8 +14,6 @@ CFileType fileTypeChecker(String itemPath) {
     return CFileType.note;
   } else if (allowedImageExtensions.any((ext) => ext == extension)) {
     return CFileType.image;
-  } else if (allowedPdfExtensions.any((ext) => ext == extension)) {
-    return CFileType.pdf;
   } else if (allowedSketchExtensions.any((ext) => ext == extension)) {
     return CFileType.sketch;
   } else {

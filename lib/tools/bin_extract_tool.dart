@@ -57,7 +57,7 @@ String _detectTopLevel(Uint8List head) {
     return String.fromCharCodes(head.sublist(start, end));
   }
 
-  if (head.length >= 5 && ascii(0, 5) == '%PDF-') return 'pdf';
+  if (head.length >= 5 && ascii(0, 5) == '%PDF-') return 'binary';
   if (head.length >= 4 &&
       head[0] == 0x50 &&
       head[1] == 0x4b &&
@@ -110,10 +110,7 @@ Future<Map<String, dynamic>> extractBinary(
 
   // 按顶层类型按需下载 JS 库（文本类不需要任何库，零下载）。
   final libs = <String>[];
-  if (type == 'pdf') {
-    libs.add('pdfjs');
-    libs.add('pdfjs-worker');
-  } else if (type == 'zip' || type == 'gzip' || type == 'tar') {
+  if (type == 'zip' || type == 'gzip' || type == 'tar') {
     libs.add('fflate');
   } else if (type == 'sqlite') {
     libs.add('sqljs');
@@ -247,7 +244,7 @@ function decodeText(bytes, enc) {
 
 function detect(bytes) {
   var head = b2s(bytes.subarray(0, 16));
-  if (bytes.length >= 5 && b2s(bytes.subarray(0, 5)) === '%PDF-') return 'pdf';
+  if (bytes.length >= 5 && b2s(bytes.subarray(0, 5)) === '%PDF-') return 'binary';
   if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b &&
       (bytes[2] === 0x03 || bytes[2] === 0x05 || bytes[2] === 0x07)) return 'zip';
   if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) return 'gzip';
@@ -506,10 +503,6 @@ async function run() {
     var type = detect(bytes);
     var result;
     switch (type) {
-      case 'pdf':
-        await loadScript('pdf.min.js');
-        result = await handlePdf(bytes);
-        break;
       case 'zip':
         await loadScript('fflate.min.js');
         result = await handleZip(bytes);

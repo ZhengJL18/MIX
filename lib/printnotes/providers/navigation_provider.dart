@@ -6,7 +6,6 @@ import 'package:mix/printnotes/constants/constants.dart';
 
 import 'package:mix/printnotes/utils/handlers/file_extensions.dart';
 import 'package:mix/printnotes/ui/screens/viewers/image_viewer.dart';
-import 'package:mix/printnotes/ui/screens/viewers/pdf_viewer.dart';
 import 'package:mix/printnotes/ui/screens/editors/notes/note_editor.dart';
 
 class NavigationProvider with ChangeNotifier {
@@ -54,13 +53,6 @@ class NavigationProvider with ChangeNotifier {
       if (fileExists && context.mounted) {
         if (fileTypeChecker(item.path) == CFileType.image) {
           _openPage(context, item, () => ImageViewScreen(imageUri: item));
-        } else if (fileTypeChecker(item.path) == CFileType.pdf) {
-          // PDF 查看器：WebView + pdf.js（内核按需下载，见 PdfViewerScreen）。
-          _openPage(
-            context,
-            item,
-            () => PdfViewerScreen(fileUri: item),
-          );
         } else if (fileTypeChecker(item.path) == CFileType.sketch) {
           // 手写板 sketch 依赖 sketch_flow，首版跳过。
           debugPrint('NavigationProvider: sketch files not supported yet');
@@ -96,7 +88,6 @@ class NavigationProvider with ChangeNotifier {
       type: FileType.custom,
       allowedExtensions: [
         ...allowedImageExtensions,
-        ...allowedPdfExtensions,
         ...allowedNoteExtensions,
       ],
     );

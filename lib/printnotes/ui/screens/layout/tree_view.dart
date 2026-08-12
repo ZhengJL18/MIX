@@ -175,9 +175,6 @@ extension on ExplorableNode {
         return Icon(Icons.image_outlined,
             color: Theme.of(context).colorScheme.primary);
       }
-      if (fileTypeChecker(file.path) == CFileType.pdf) {
-        return const Icon(Icons.picture_as_pdf);
-      }
       if (fileTypeChecker(file.path) == CFileType.sketch) {
         return const Icon(Icons.draw);
       }
