@@ -27,6 +27,8 @@ import 'agent/context_compressor.dart';
 import 'agent/workflow.dart';
 import 'config/mix_config.dart';
 import 'db/session_db.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'llm/openai_llm.dart';
 import 'notes/notes_paths.dart';
 import 'refine/edit_journal.dart';
@@ -58,6 +60,7 @@ import 'tools/model_tools.dart';
 import 'tools/web_login_tool.dart';
 import 'tools/notes_tools.dart';
 import 'tools/bin_extract_tool.dart';
+import 'tools/terminal_tool.dart';
 import 'tools/session_search_tool.dart';
 import 'tools/skills_tool.dart';
 import 'tools/study_tools.dart';
@@ -425,6 +428,10 @@ class _ChatScreenState extends State<ChatScreen> {
     registerStudyTools();
     registerNotesTools();
     registerBinExtractTool();
+    // Linux 桌面：agent 获得终端能力（curl/pdftotext/任意命令）。
+    if (Platform.isLinux) {
+      registerTerminalTool();
+    }
     studyListHandler = _studyList;
     studyQuestionHandler = _studyQuestion;
     studyProfileUpdateHandler = _studyProfileUpdate;
@@ -489,6 +496,17 @@ class _ChatScreenState extends State<ChatScreen> {
     final completer = Completer<String>();
     if (!mounted) {
       completer.complete('登录页无法打开：界面未就绪');
+      return completer.future;
+    }
+    // Linux 桌面：无内嵌 WebView，改用系统默认浏览器打开登录页。
+    if (Platform.isLinux) {
+      if (initialUrl.isEmpty) {
+        completer.complete('未提供登录地址');
+        return completer.future;
+      }
+      launchUrl(Uri.parse(initialUrl),
+          mode: LaunchMode.externalApplication);
+      completer.complete('已在系统浏览器打开登录页，登录后 cookie 存浏览器');
       return completer.future;
     }
     Navigator.of(context)
@@ -1352,6 +1370,11 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {}
     // 会话库。
     try {
+      // Linux 桌面：sqflite 无实现，改用 sqflite_common_ffi（本地 sqlite）。
+      if (Platform.isLinux) {
+        sqfliteFfiInit();
+        sessionDbFactory = databaseFactoryFfi;
+      }
       _sessionDb = SessionDB(dbPath: '$dir/state.db');
       await _sessionDb!.init();
       sessionDb = _sessionDb;
@@ -1621,9 +1644,16 @@ class _ChatScreenState extends State<ChatScreen> {
                     MaterialPageRoute(builder: (_) => const FileBrowserScreen()),
                   );
                 case 'web_login':
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const WebViewLoginScreen()),
-                  );
+                  if (Platform.isLinux) {
+                    // Linux 桌面：无内嵌 WebView，系统浏览器打开登录页。
+                    launchUrl(Uri.parse('https://www.zhihu.com/'),
+                        mode: LaunchMode.externalApplication);
+                  } else {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                          builder: (_) => const WebViewLoginScreen()),
+                    );
+                  }
                 case 'settings':
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => SettingsScreen()),

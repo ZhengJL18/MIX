@@ -291,6 +291,8 @@ Set<String> get webviewHosts => {..._builtinWebviewHosts, ..._customWebviewHosts
 
 /// 是否需 WebView 抓取。
 bool _needsWebview(String url) {
+  // Linux 桌面：flutter_inappwebview 无实现，跳过 WebView 改走 HTTP 抓取。
+  if (Platform.isLinux) return false;
   try {
     final host = Uri.parse(url).host.toLowerCase();
     for (final h in webviewHosts) {

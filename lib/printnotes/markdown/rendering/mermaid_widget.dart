@@ -162,6 +162,11 @@ class MermaidRenderer {
 
   /// 渲染 mermaid 代码为 SVG 字符串（带缓存与去重）。
   Future<String> render(String code) {
+    // Linux 桌面：flutter_inappwebview 无实现，直接降级为不可用提示
+    // （UI 显示"mermaid 渲染失败"，不崩溃）。
+    if (Platform.isLinux) {
+      return Future.error(StateError('桌面版暂不支持 mermaid 渲染'));
+    }
     final cached = _cache[code];
     if (cached != null) return Future.value(cached);
 
