@@ -454,9 +454,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 启动时静默检查更新，有新版 → 弹窗提示。
   Future<void> _checkUpdate() async {
-    final info = await UpdateService.checkForUpdate();
-    if (!mounted || info == null) return;
-    _showUpdateDialog(info);
+    final sources = await UpdateService.checkForUpdate();
+    if (!mounted || sources.isEmpty) return;
+    _showUpdateDialog(sources);
   }
 
   /// 手动检查更新（二级菜单入口）：有新版弹窗，无新版/失败给提示。
@@ -465,12 +465,13 @@ class _ChatScreenState extends State<ChatScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('正在检查更新…')),
     );
-    UpdateInfo? info;
+    List<UpdateInfo> sources;
     var failed = false;
     try {
-      info = await UpdateService.checkForUpdateDetailed();
+      sources = await UpdateService.checkForUpdateDetailed();
     } catch (_) {
       failed = true; // 网络/解析失败。
+      sources = const [];
     }
     if (!mounted) return;
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
@@ -478,8 +479,8 @@ class _ChatScreenState extends State<ChatScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('检查更新失败，请检查网络')),
       );
-    } else if (info != null) {
-      _showUpdateDialog(info);
+    } else if (sources.isNotEmpty) {
+      _showUpdateDialog(sources);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('已是最新版本')),
@@ -512,30 +513,67 @@ class _ChatScreenState extends State<ChatScreen> {
     setGitCwd(path);
   }
 
-  void _showUpdateDialog(UpdateInfo info) {
+  /// 更新对话框。多个源可用时让用户选下载源（国内镜像免 VPN / GitHub）。
+  void _showUpdateDialog(List<UpdateInfo> sources) {
+    // 选 build 最高的源作默认（镜像可能与 GitHub 版本不同步）。
+    final sorted = [...sources]..sort((a, b) => b.buildNumber.compareTo(a.buildNumber));
+    final latest = sorted.first;
+    // 默认优先国内镜像（同版本时），没有镜像才默认 GitHub。
+    final defaultInfo = sorted.firstWhere((s) => s.source == '国内镜像',
+        orElse: () => sorted.first);
+    var selected = defaultInfo;
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: Text('发现新版本 v${info.version}'),
-        content: SingleChildScrollView(
-          child: Text(info.notes?.trim().isNotEmpty == true
-              ? info.notes!
-              : '有新版本可用，是否立即更新？'),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text('发现新版本 v${latest.version}'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(latest.notes?.trim().isNotEmpty == true
+                    ? latest.notes!
+                    : '有新版本可用，是否立即更新？'),
+                if (sources.length > 1) ...[
+                  const SizedBox(height: 12),
+                  for (final s in sorted)
+                    ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        selected == s
+                            ? Icons.check_circle
+                            : Icons.radio_button_unchecked,
+                        color: selected == s
+                            ? context.appPalette.primary
+                            : context.appPalette.textSecondary,
+                      ),
+                      title: Text(s.source),
+                      subtitle: Text(
+                          s.source == '国内镜像' ? '快，免科学上网' : '官方源，可能需科学上网',
+                          style: const TextStyle(fontSize: 12)),
+                      onTap: () => setDialogState(() => selected = s),
+                    ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('稍后'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _downloadAndInstall(selected);
+              },
+              child: const Text('立即更新'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('稍后'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              _downloadAndInstall(info);
-            },
-            child: const Text('立即更新'),
-          ),
-        ],
       ),
     );
   }

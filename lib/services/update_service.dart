@@ -20,40 +20,84 @@ class UpdateInfo {
   /// 更新说明（release body）。
   final String? notes;
 
+  /// 下载源标识（'国内镜像' / 'GitHub'），更新时让用户选。
+  final String source;
+
   const UpdateInfo({
     required this.version,
     required this.buildNumber,
     required this.downloadUrl,
     this.notes,
+    this.source = 'GitHub',
   });
 }
 
 /// 自动更新服务。
 ///
-/// 版本源：GitHub Releases（CI 每次 push 发 release，tag = v1.0.0+<run_number>）。
+/// 版本源：国内镜像优先（免 VPN），兜底 GitHub Releases（tag = v1.0.0+N）。
 /// App 启动时 checkForUpdate()，有新版返回 UpdateInfo，无/失败返回 null（静默）。
 class UpdateService {
   static const String _repo = 'ZhengJL18/MIX';
   static const Duration _timeout = Duration(seconds: 15);
 
-  /// 查最新 release，与本地版本比较。有新版返回 UpdateInfo，否则 null。
-  /// 网络/解析失败返回 null（启动静默，不打扰用户）。
-  static Future<UpdateInfo?> checkForUpdate() async {
+  /// 国内更新镜像清单（服务器自动同步 GitHub Releases，免 VPN）。
+  static const String _mirrorManifestUrl =
+      'http://43.139.179.58/update/latest.json';
+
+  /// 查更新（静默）：返回所有有新版可用的源（国内镜像 / GitHub）。
+  /// 空 = 无更新或全部失败；启动静默不打扰。
+  static Future<List<UpdateInfo>> checkForUpdate() async {
     try {
-      return await _fetchLatest();
+      return await checkForUpdateDetailed();
     } catch (e) {
       debugPrint('[Update] 检查失败: $e');
+      return const <UpdateInfo>[];
+    }
+  }
+
+  /// 手动检查：返回有新版可用的源列表（可能 0 / 1 / 2 个）。
+  /// 每个源独立判断，镜像未同步好或 GitHub 挂了都不影响另一个。
+  static Future<List<UpdateInfo>> checkForUpdateDetailed() async {
+    final results = <UpdateInfo>[];
+    final mirror = await _fetchFromMirror();
+    final github = await _fetchFromGitHub();
+    if (mirror != null) results.add(mirror);
+    if (github != null) results.add(github);
+    return results;
+  }
+
+  /// 从国内镜像 /update/latest.json 读取（清单由服务器同步脚本生成）。
+  static Future<UpdateInfo?> _fetchFromMirror() async {
+    try {
+      final resp =
+          await http.get(Uri.parse(_mirrorManifestUrl)).timeout(_timeout);
+      if (resp.statusCode != 200) return null;
+      final data =
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      final remoteBuild = data['build'] as int? ?? 0;
+      final downloadUrl = data['apk_url'] as String? ?? '';
+      debugPrint('[Update] mirror build=$remoteBuild url=$downloadUrl');
+      if (remoteBuild <= 0 || downloadUrl.isEmpty) return null;
+
+      final local = await PackageInfo.fromPlatform();
+      final localBuild = int.tryParse(local.buildNumber) ?? 0;
+      debugPrint('[Update] local build=$localBuild');
+      if (remoteBuild <= localBuild) return null;
+
+      return UpdateInfo(
+        version: data['version'] as String? ?? '',
+        buildNumber: remoteBuild,
+        downloadUrl: downloadUrl,
+        notes: data['notes'] as String?,
+        source: '国内镜像',
+      );
+    } catch (e) {
+      debugPrint('[Update] 镜像检查失败: $e');
       return null;
     }
   }
 
-  /// 手动检查：有新版返回 UpdateInfo，无新版返回 null，检查失败抛异常。
-  /// 调用者据此区分三种状态（区别于启动静默的 [checkForUpdate]）。
-  static Future<UpdateInfo?> checkForUpdateDetailed() async {
-    return _fetchLatest();
-  }
-
-  static Future<UpdateInfo?> _fetchLatest() async {
+  static Future<UpdateInfo?> _fetchFromGitHub() async {
       final resp = await http
           .get(
             Uri.parse('https://api.github.com/repos/$_repo/releases/latest'),
