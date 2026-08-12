@@ -5,6 +5,7 @@ library;
 
 import 'dart:convert';
 
+import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -107,6 +108,105 @@ Future<List<GitHubRepo>> fetchUserRepos(String token) async {
     for (final r in data)
       if (r is Map<String, dynamic>) GitHubRepo.fromJson(r),
   ];
+}
+
+/// 拉取仓库最近的 CI workflow 运行。
+Future<List<Map<String, dynamic>>> fetchWorkflowRuns(
+  String token,
+  String repo, {
+  int perPage = 5,
+}) async {
+  final uri = Uri.parse(
+      'https://api.github.com/repos/$repo/actions/runs?per_page=$perPage');
+  final resp = await http.get(uri, headers: {
+    'Authorization': 'Bearer $token',
+    'Accept': 'application/vnd.github+json',
+    'User-Agent': 'mix-agent',
+  }).timeout(const Duration(seconds: 20));
+  if (resp.statusCode != 200) {
+    throw GitHubApiException(
+        '读取 CI 运行失败: HTTP ${resp.statusCode} ${resp.body.substring(0, resp.body.length > 120 ? 120 : resp.body.length)}');
+  }
+  final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+  final runs = data['workflow_runs'] as List? ?? const [];
+  return [
+    for (final r in runs)
+      if (r is Map<String, dynamic>)
+        {
+          'run_id': r['id'],
+          'name': r['name'],
+          'status': r['status'],
+          'conclusion': r['conclusion'],
+          'head_sha': (r['head_sha'] as String? ?? '').substring(0, 7),
+          'created_at': r['created_at'],
+          'html_url': r['html_url'],
+        },
+  ];
+}
+
+/// 拉取某次运行的所有 job（含每步结论），用于定位失败的 job/step。
+Future<List<Map<String, dynamic>>> fetchRunJobs(
+  String token,
+  String repo,
+  int runId,
+) async {
+  final uri = Uri.parse(
+      'https://api.github.com/repos/$repo/actions/runs/$runId/jobs');
+  final resp = await http.get(uri, headers: {
+    'Authorization': 'Bearer $token',
+    'Accept': 'application/vnd.github+json',
+    'User-Agent': 'mix-agent',
+  }).timeout(const Duration(seconds: 20));
+  if (resp.statusCode != 200) {
+    throw GitHubApiException('读取 job 失败: HTTP ${resp.statusCode}');
+  }
+  final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+  final jobs = data['jobs'] as List? ?? const [];
+  return [
+    for (final j in jobs)
+      if (j is Map<String, dynamic>)
+        {
+          'name': j['name'],
+          'conclusion': j['conclusion'],
+          'status': j['status'],
+          'steps': [
+            for (final s in (j['steps'] as List? ?? const []))
+              if (s is Map<String, dynamic>)
+                {'name': s['name'], 'conclusion': s['conclusion']},
+          ],
+        },
+  ];
+}
+
+/// 下载某次运行的日志 zip，解压后提取指定 job/step 的文本（失败定位）。
+Future<String> fetchRunStepLog(
+  String token,
+  String repo,
+  int runId,
+  String jobName,
+  String stepName,
+) async {
+  final uri = Uri.parse(
+      'https://api.github.com/repos/$repo/actions/runs/$runId/logs');
+  final resp = await http.get(uri, headers: {
+    'Authorization': 'Bearer $token',
+    'Accept': 'application/vnd.github+json',
+    'User-Agent': 'mix-agent',
+  }).timeout(const Duration(minutes: 2));
+  if (resp.statusCode != 200) {
+    throw GitHubApiException('下载 CI 日志失败: HTTP ${resp.statusCode}');
+  }
+  final archive = ZipDecoder().decodeBytes(resp.bodyBytes);
+  // zip 内文件形如 "<job>/<step>.txt"。
+  for (final f in archive.files) {
+    if (!f.isFile) continue;
+    final name = f.name.replaceAll('\\', '/');
+    if (name == '$jobName/$stepName.txt' ||
+        name.endsWith('/$stepName.txt')) {
+      return utf8.decode(f.content as List<int>, allowMalformed: true);
+    }
+  }
+  return '（在日志包中未找到 $jobName/$stepName.txt）';
 }
 
 /// 校验 token 并返回用户名。

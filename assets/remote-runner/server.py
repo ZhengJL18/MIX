@@ -37,7 +37,9 @@ TOKEN = os.environ.get("MIX_RUN_TOKEN", "changeme")
 PORT = int(os.environ.get("MIX_RUN_PORT", "8123"))
 TIMEOUT = int(os.environ.get("MIX_RUN_TIMEOUT", "15"))     # 秒
 MAX_OUTPUT = 200_000        # stdout/stderr 各自截断上限（字节）
-MAX_BODY = 1_000_000        # 请求体上限（字节）
+MAX_BODY = 1_000_000        # 请求体上限（字节，/run）
+MAX_EXTRACT_BODY = 40_000_000  # /extract 请求体上限（字节，base64 文件约 30MB）
+EXTRACT_TIMEOUT = 120       # 格式提取/转换超时（秒）
 IMG_DIR = "/tmp/mix_imgs"   # matplotlib 图片中转目录
 
 # 语言 → 执行方案（ext: 源码文件名；compile/run: 命令）
@@ -190,6 +192,107 @@ def execute(lang, code):
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+# ============================================================================
+# /extract 格式提取与转换（PyMuPDF / tesseract / pandoc）
+# ============================================================================
+# 与 /run 的沙盒策略一致：token 认证、独立临时目录、超时、输出截断。
+# 依赖（deploy.sh 会装）：
+#   pip install pymupdf weasyprint
+#   apt install tesseract-ocr tesseract-ocr-chi-sim pandoc
+
+EXTRACT_MAX_TEXT = 400_000   # 提取文本上限（字符）
+
+
+def extract_pdf_text(data, filename):
+    """PyMuPDF 逐页提文本层（秒级，替代 WebView+pdf.js）。"""
+    import fitz
+    doc = fitz.open(stream=data, filetype="pdf")
+    pages = []
+    for i, page in enumerate(doc):
+        pages.append("--- 第 %d 页 ---\n%s" % (i + 1, page.get_text("text")))
+    text = "\n\n".join(pages)[:EXTRACT_MAX_TEXT]
+    return {"text": text, "pages": doc.page_count}
+
+
+def extract_ocr(data, filename):
+    """tesseract OCR：扫描版 PDF / 图片文字（chi_sim+eng）。"""
+    with tempfile.NamedTemporaryFile(
+            suffix=os.path.splitext(filename)[1] or ".png", delete=False) as f:
+        f.write(data)
+        f.flush()
+        inpath = f.name
+    outpath = inpath + "_out"
+    try:
+        cp = subprocess.run(
+            ["tesseract", inpath, outpath, "-l", "chi_sim+eng"],
+            timeout=EXTRACT_TIMEOUT, capture_output=True)
+        if cp.returncode != 0:
+            return {"error": "OCR 失败: %s" % (cp.stderr or "tesseract 未安装").strip()}
+        with open(outpath + ".txt", encoding="utf-8", errors="replace") as f:
+            text = f.read()[:EXTRACT_MAX_TEXT]
+        return {"text": text}
+    finally:
+        for p in (inpath, outpath + ".txt"):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
+def _md_convert(data, filename, out_ext, extra_args):
+    workdir = tempfile.mkdtemp(prefix="mixconv_")
+    inpath = os.path.join(workdir, "input.md")
+    outpath = inpath + out_ext
+    try:
+        with open(inpath, "wb") as f:
+            f.write(data)
+        env = dict(_MIN_ENV)
+        # nobody 用户对 / 无写权限；pandoc 建临时文件需要可写的 TMPDIR + cwd。
+        # weasyprint 是 pip 装的 CLI，在 /usr/local/bin（不在 _MIN_ENV 的 PATH）。
+        env["PATH"] = "/usr/local/bin:/usr/bin:/bin"
+        env["TMPDIR"] = workdir
+        cp = subprocess.run(
+            ["pandoc", inpath, "-o", outpath] + extra_args,
+            cwd=workdir, env=env,
+            timeout=EXTRACT_TIMEOUT, capture_output=True)
+        if cp.returncode != 0:
+            return {"error": "pandoc 失败: %s" % (cp.stderr or "pandoc 未安装").strip()}
+        with open(outpath, "rb") as f:
+            out_bytes = f.read()
+        return {
+            "output": base64.b64encode(out_bytes).decode(),
+            "output_name": os.path.splitext(filename)[0] + out_ext,
+        }
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+def extract_md_to_docx(data, filename):
+    return _md_convert(data, filename, ".docx", [])
+
+
+def extract_md_to_pdf(data, filename):
+    # weasyprint 引擎：纯 Python CSS 渲染，避免装整套 texlive。
+    return _md_convert(data, filename, ".pdf", ["--pdf-engine=weasyprint"])
+
+
+def extract(task, data, filename):
+    handlers = {
+        "pdf_text": extract_pdf_text,
+        "ocr": extract_ocr,
+        "md_to_docx": extract_md_to_docx,
+        "md_to_pdf": extract_md_to_pdf,
+    }
+    fn = handlers.get(task)
+    if fn is None:
+        return {"error": "不支持的 extract 任务: %s（可选: %s）"
+                % (task, ", ".join(sorted(handlers)))}
+    try:
+        return fn(data, filename)
+    except Exception as e:
+        return {"error": "%s: %s" % (task, e)}
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -209,6 +312,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
+        if self.path == "/extract":
+            return self._handle_extract()
         if self.path != "/run":
             return self._send(404, {"error": "not found"})
         try:
@@ -225,6 +330,26 @@ class Handler(BaseHTTPRequestHandler):
         code = str(body.get("code", ""))
         with _lock:
             result = execute(lang, code)
+        self._send(200, result)
+
+    def _handle_extract(self):
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length <= 0 or length > MAX_EXTRACT_BODY:
+                return self._send(413, {"error": "请求体过大（>30MB 原始文件）"})
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+        except Exception:
+            return self._send(400, {"error": "JSON 解析失败"})
+        if body.get("token") != TOKEN:
+            return self._send(401, {"error": "token 错误"})
+        task = str(body.get("task", ""))
+        filename = str(body.get("filename", "file"))
+        try:
+            data = base64.b64decode(body.get("data", ""))
+        except Exception:
+            return self._send(400, {"error": "data 不是合法 base64"})
+        with _lock:
+            result = extract(task, data, filename)
         self._send(200, result)
 
     def log_message(self, *args):

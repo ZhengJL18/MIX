@@ -175,6 +175,12 @@ Map<String, ToolsetDef> toolsetDefs = {
         'and search (content + files)',
     tools: ['read_file', 'write_file', 'patch', 'search_files'],
   ),
+  'convert': ToolsetDef(
+    description:
+        'Format conversion tools: export Markdown as Word (.docx) or PDF, '
+        'and cloud extract (large PDF / OCR / pandoc)',
+    tools: ['md_to_docx', 'md_to_pdf', 'cloud_extract'],
+  ),
   'git': ToolsetDef(
     description:
         'Git version control via embedded libgit2: init, status, add, '
@@ -182,6 +188,7 @@ Map<String, ToolsetDef> toolsetDefs = {
     tools: [
       'git_version', 'git_init', 'git_status', 'git_add', 'git_commit',
       'git_log', 'git_branch', 'git_diff', 'git_clone', 'git_push', 'git_pull',
+      'github_ci_logs',
     ],
   ),
   'tts': ToolsetDef(

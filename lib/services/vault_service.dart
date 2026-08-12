@@ -127,10 +127,27 @@ class VaultAuthException implements Exception {
 }
 
 
+/// 备份扫描跳过的目录名（克隆的 git 仓库根 + 已知重型/无关目录）。
+/// 此前 listSync(recursive: true) 会把 documents 里 clone 的 GitHub 仓库
+/// （github/hermes-app/third_party 等）整库塞进备份——一个笔记备份被撑到
+/// 15MB 且夹带源码。含 .git 的目录视为仓库根整体跳过。
+const Set<String> _backupSkipDirNames = {
+  '.git',
+  '.dart_tool',
+  'build',
+  'third_party',
+  'site',
+};
+
+bool _isRepoRoot(String path) => Directory('$path/.git').existsSync();
+
 /// 把 App 数据打包成 JSON 备份（state.db + 记忆 + 技能 + 配置）。
 ///
+/// [includePaths] 只备份这些顶层相对路径（如 ['notes','memories']）；空 = 全备份。
 /// [skipDb] 测试用：跳过数据库读取。
-Future<Map<String, dynamic>> buildBackupPayload() async {
+Future<Map<String, dynamic>> buildBackupPayload({
+  List<String> includePaths = const [],
+}) async {
   final payload = <String, dynamic>{};
   final dir = await getApplicationDocumentsDirectory();
   final now = DateTime.now().toIso8601String();
@@ -142,19 +159,36 @@ Future<Map<String, dynamic>> buildBackupPayload() async {
     payload['state_db'] = base64Encode(bytes);
   }
 
-  // 记忆 + 技能：扫描 documents 下相关文件。
+  // 记忆 + 技能：扫描 documents 下相关文件，跳过仓库根/重型目录。
   final files = <String, String>{};
-  for (final entry in Directory(dir.path).listSync(recursive: true)) {
-    if (entry is! File) continue;
-    final name = entry.path.split('/').last;
-    // 记忆 / 技能 / 配置类文本文件。
-    if (name.endsWith('.md') ||
-        name.endsWith('.yaml') ||
-        name.endsWith('.yml')) {
-      try {
-        files[entry.path.substring(dir.path.length + 1)] =
-            await entry.readAsString();
-      } catch (_) {}
+  final pending = <Directory>[
+    if (includePaths.isEmpty)
+      dir
+    else
+      for (final rel in includePaths)
+        if (rel.isNotEmpty) Directory('${dir.path}/$rel'),
+  ];
+  while (pending.isNotEmpty) {
+    final current = pending.removeLast();
+    final baseName = current.path.split('/').last;
+    if (_backupSkipDirNames.contains(baseName) || _isRepoRoot(current.path)) {
+      continue;
+    }
+    for (final entry in current.listSync(followLinks: false)) {
+      if (entry is Directory) {
+        pending.add(entry);
+      } else if (entry is File) {
+        final name = entry.path.split('/').last;
+        // 记忆 / 技能 / 配置类文本文件。
+        if (name.endsWith('.md') ||
+            name.endsWith('.yaml') ||
+            name.endsWith('.yml')) {
+          try {
+            files[entry.path.substring(dir.path.length + 1)] =
+                await entry.readAsString();
+          } catch (_) {}
+        }
+      }
     }
   }
   payload['files'] = files;

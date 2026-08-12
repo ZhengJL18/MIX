@@ -71,6 +71,18 @@ class RemoteAssetManager {
           'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/js/sql-wasm.wasm',
       sizeMB: 0.65,
     ),
+    'pdfjs': RemoteAssetSpec(
+      name: 'pdf.min.js',
+      url:
+          'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/js/pdf.min.js',
+      sizeMB: 0.32,
+    ),
+    'pdfjs-worker': RemoteAssetSpec(
+      name: 'pdf.worker.min.js',
+      url:
+          'https://raw.githubusercontent.com/ZhengJL18/MIX/master/assets/js/pdf.worker.min.js',
+      sizeMB: 1.1,
+    ),
   };
 
   /// 进行中的下载（并发去重）。
@@ -122,22 +134,37 @@ class RemoteAssetManager {
     void Function(int, int, String)? onProgress,
   ) async {
     final tmp = File('${dir.path}/${spec.name}.part');
+    final request = http.Request('GET', Uri.parse(spec.url));
     try {
-      final resp =
-          await http.get(Uri.parse(spec.url)).timeout(const Duration(seconds: 120));
+      // 流式下载写盘：整包 http.get 会把整个 body 读进内存再 writeAsBytes 二次
+      // 拷贝，大资源在低内存设备上引发 GC 停顿 → 界面卡死。改流式分块写，
+      // 内存占用恒定，并顺带逐块上报真实进度（onProgress(done, total, name)）。
+      final resp = await http.Client()
+          .send(request)
+          .timeout(const Duration(minutes: 5));
       if (resp.statusCode != 200) {
         throw StateError('下载 ${spec.name} 失败: HTTP ${resp.statusCode}');
       }
-      final bytes = resp.bodyBytes;
-      if (spec.sha256 != null) {
-        // TODO: 接入 SHA-256 校验（需要 crypto 依赖）
+      final total = resp.contentLength ?? 0;
+      final sink = tmp.openWrite();
+      var done = 0;
+      try {
+        await for (final chunk in resp.stream) {
+          sink.add(chunk);
+          done += chunk.length;
+          if (total > 0) {
+            onProgress?.call(done, total, spec.name);
+          }
+        }
+        await sink.flush();
+      } finally {
+        await sink.close();
       }
-      await tmp.writeAsBytes(bytes, flush: true);
       // 原子改名：避免半成品被误当缓存
       final finalFile = File('${dir.path}/${spec.name}');
       if (finalFile.existsSync()) await finalFile.delete();
       await tmp.rename(finalFile.path);
-      onProgress?.call(1, 1, spec.name);
+      onProgress?.call(total > 0 ? total : done, total > 0 ? total : done, spec.name);
       return finalFile.path;
     } catch (e) {
       if (tmp.existsSync()) await tmp.delete();

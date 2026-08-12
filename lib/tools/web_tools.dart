@@ -23,7 +23,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'registry.dart';
 import 'url_safety.dart';
 import 'userscripts.dart' as us;
-import 'web_login_tool.dart';
 import 'webview_extract.dart';
 
 /// 搜索后端接口（可替换：未来接 Firecrawl/Tavily 时实现 provider）。
@@ -537,7 +536,6 @@ const Map<String, dynamic> webExtractSchema = {
 
 /// 注册 web 工具。
 void registerWebTools() {
-  registerWebLoginTool();
   registry.register(
     name: 'web_search',
     toolset: 'web',

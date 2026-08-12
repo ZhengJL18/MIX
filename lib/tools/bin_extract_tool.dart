@@ -57,7 +57,7 @@ String _detectTopLevel(Uint8List head) {
     return String.fromCharCodes(head.sublist(start, end));
   }
 
-  if (head.length >= 5 && ascii(0, 5) == '%PDF-') return 'binary';
+  if (head.length >= 5 && ascii(0, 5) == '%PDF-') return 'pdf';
   if (head.length >= 4 &&
       head[0] == 0x50 &&
       head[1] == 0x4b &&
@@ -115,6 +115,9 @@ Future<Map<String, dynamic>> extractBinary(
   } else if (type == 'sqlite') {
     libs.add('sqljs');
     libs.add('sqljs-wasm');
+  } else if (type == 'pdf') {
+    libs.add('pdfjs');
+    libs.add('pdfjs-worker');
   }
 
   final libPaths = <String, String>{};
@@ -244,7 +247,7 @@ function decodeText(bytes, enc) {
 
 function detect(bytes) {
   var head = b2s(bytes.subarray(0, 16));
-  if (bytes.length >= 5 && b2s(bytes.subarray(0, 5)) === '%PDF-') return 'binary';
+  if (bytes.length >= 5 && b2s(bytes.subarray(0, 5)) === '%PDF-') return 'pdf';
   if (bytes.length >= 4 && bytes[0] === 0x50 && bytes[1] === 0x4b &&
       (bytes[2] === 0x03 || bytes[2] === 0x05 || bytes[2] === 0x07)) return 'zip';
   if (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b) return 'gzip';
@@ -518,6 +521,10 @@ async function run() {
       case 'sqlite':
         await loadScript('sql-wasm.js');
         result = await handleSqlite(bytes);
+        break;
+      case 'pdf':
+        await loadScript('pdf.min.js');
+        result = await handlePdf(bytes);
         break;
       case 'utf16le': result = handleText(bytes, 'utf-16le'); break;
       case 'utf16be': result = handleText(bytes, 'utf-16be'); break;

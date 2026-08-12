@@ -28,17 +28,13 @@ import 'agent/workflow.dart';
 import 'config/mix_config.dart';
 import 'db/session_db.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'llm/openai_llm.dart';
 import 'notes/notes_paths.dart';
 import 'refine/edit_journal.dart';
 import 'refine/prompt_notes_store.dart';
 import 'refine/refine_pipeline.dart';
 import 'refine/trajectory_store.dart';
-import 'screens/file_browser_screen.dart';
 import 'screens/settings_screen.dart';
-import 'screens/theme_screen.dart';
-import 'screens/webview_login_screen.dart';
 import 'screens/workspace_screen.dart';
 import 'services/multi_agent.dart';
 import 'services/storage_permission.dart';
@@ -58,9 +54,9 @@ import 'tools/memory_manager.dart';
 import 'tools/memory_tool.dart';
 import 'tools/moa_tool.dart';
 import 'tools/model_tools.dart';
-import 'tools/web_login_tool.dart';
 import 'tools/notes_tools.dart';
 import 'tools/bin_extract_tool.dart';
+import 'tools/convert_tools.dart';
 import 'tools/terminal_tool.dart';
 import 'tools/session_search_tool.dart';
 import 'tools/skills_tool.dart';
@@ -389,7 +385,7 @@ class _ChatScreenState extends State<ChatScreen> {
     registerGitTools();
     registerClarifyTool();
     clarifyHandler = _showClarifyDialog;
-    webLoginHandler = _openWebLogin;
+    // 爬虫登录功能已移除（2026-08-13 用户决定）。
     registerDelegateTool();
     delegateHandler = (task, toolsets, depth) async {
       final svc = await _ensureMultiAgent();
@@ -429,6 +425,7 @@ class _ChatScreenState extends State<ChatScreen> {
     registerStudyTools();
     registerNotesTools();
     registerBinExtractTool();
+    registerConvertTools();
     // Linux 桌面：agent 获得终端能力（curl/pdftotext/任意命令）。
     if (Platform.isLinux) {
       registerTerminalTool();
@@ -513,36 +510,6 @@ class _ChatScreenState extends State<ChatScreen> {
     configureFileTools(cwd: path, allowExternal: true);
     rememberFileToolsCwd(path);
     setGitCwd(path);
-  }
-
-  /// web_login 工具回调：打开内嵌登录页，返回用户操作结果给 agent。
-  Future<String> _openWebLogin(String url, String domain) {
-    final initialUrl =
-        url.isNotEmpty ? url : (domain.isNotEmpty ? 'https://$domain' : '');
-    final completer = Completer<String>();
-    if (!mounted) {
-      completer.complete('登录页无法打开：界面未就绪');
-      return completer.future;
-    }
-    // Linux 桌面：无内嵌 WebView，改用系统默认浏览器打开登录页。
-    if (Platform.isLinux) {
-      if (initialUrl.isEmpty) {
-        completer.complete('未提供登录地址');
-        return completer.future;
-      }
-      launchUrl(Uri.parse(initialUrl),
-          mode: LaunchMode.externalApplication);
-      completer.complete('已在系统浏览器打开登录页，登录后 cookie 存浏览器');
-      return completer.future;
-    }
-    Navigator.of(context)
-        .push(MaterialPageRoute(
-          builder: (_) => WebViewLoginScreen(initialUrl: initialUrl),
-        ))
-        .then((result) {
-          completer.complete(result as String? ?? '用户已关闭登录页');
-        });
-    return completer.future;
   }
 
   void _showUpdateDialog(UpdateInfo info) {
@@ -1247,6 +1214,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   /// clarify 回调：弹对话框收集用户答案。
+  ///
+  /// P6：交互对齐学习模式「选择模式」——选项用可点卡片而非勾选框；
+  /// 单选点一下即选，多选点选后按确定（对齐主题设置的"分层选择"手感）。
   Future<String> _showClarifyDialog(
     String question,
     List<String> choices,
@@ -1257,67 +1227,102 @@ class _ChatScreenState extends State<ChatScreen> {
     final answer = await showDialog<String>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('MIX 想确认一下'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(question),
-              ),
-              if (choices.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                for (final c in choices)
-                  CheckboxListTile(
-                    title: Text(c),
-                    value: selected.contains(c),
-                    dense: true,
-                    onChanged: (v) => setDialogState(() {
-                      if (multiSelect) {
-                        if (v == true) {
-                          selected.add(c);
-                        } else {
-                          selected.remove(c);
-                        }
-                      } else {
-                        selected
-                          ..clear()
-                          ..add(c);
-                      }
-                    }),
-                  ),
-              ],
-              const SizedBox(height: 8),
-              TextField(
-                controller: controller,
-                decoration: const InputDecoration(
-                  labelText: '或直接输入回答',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, ''),
-              child: const Text('跳过'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final typed = controller.text.trim();
-                if (typed.isNotEmpty) {
-                  Navigator.pop(ctx, typed);
-                } else if (selected.isNotEmpty) {
-                  Navigator.pop(ctx, selected.join('、'));
+        builder: (ctx, setDialogState) {
+          Widget choiceCard(String c) {
+            final isSel = selected.contains(c);
+            return InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () {
+                if (multiSelect) {
+                  setDialogState(() {
+                    if (isSel) {
+                      selected.remove(c);
+                    } else {
+                      selected.add(c);
+                    }
+                  });
                 } else {
-                  Navigator.pop(ctx, '');
+                  Navigator.pop(ctx, c);
                 }
               },
-              child: const Text('确定'),
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: isSel
+                      ? Theme.of(ctx).colorScheme.primary.withValues(alpha: 0.15)
+                      : Theme.of(ctx).colorScheme.surfaceContainerHighest,
+                  border: Border.all(
+                    color: isSel
+                        ? Theme.of(ctx).colorScheme.primary
+                        : Theme.of(ctx).dividerColor,
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(c,
+                          style: TextStyle(
+                            fontWeight:
+                                isSel ? FontWeight.w600 : FontWeight.normal,
+                          )),
+                    ),
+                    if (isSel)
+                      Icon(Icons.check,
+                          size: 18, color: Theme.of(ctx).colorScheme.primary),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          return AlertDialog(
+            title: const Text('MIX 想确认一下'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(question,
+                      style: const TextStyle(fontWeight: FontWeight.w600)),
+                  if (choices.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    for (final c in choices) choiceCard(c),
+                  ],
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: controller,
+                    decoration: const InputDecoration(
+                      labelText: '或直接输入回答',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, ''),
+                child: const Text('跳过'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final typed = controller.text.trim();
+                  if (typed.isNotEmpty) {
+                    Navigator.pop(ctx, typed);
+                  } else if (selected.isNotEmpty) {
+                    Navigator.pop(ctx, selected.join('、'));
+                  } else {
+                    Navigator.pop(ctx, '');
+                  }
+                },
+                child: const Text('确定'),
+              ),
+            ],
+          );
+        },
       ),
     );
     return answer ?? '';
@@ -1461,6 +1466,99 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {}
   }
 
+  /// 模式设置对话框：模式选择 + 计划模式 + 思考强度，三合一（P9）。
+  Future<void> _showModeDialog() async {
+    var wf = _workflowId;
+    var plan = _planMode;
+    var effort = _chatEffort;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('模式设置'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final w in builtinWorkflows)
+                  ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    leading: Icon(
+                      w.id == wf ? Icons.check_circle : Icons.radio_button_unchecked,
+                      color: w.id == wf
+                          ? context.appPalette.primary
+                          : context.appPalette.textSecondary,
+                    ),
+                    title: Text(w.name),
+                    subtitle: Text(w.description,
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    onTap: () => setDialogState(() => wf = w.id),
+                  ),
+                const Divider(height: 12),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('计划模式'),
+                  subtitle: const Text('先探索出计划，批准后执行'),
+                  value: plan,
+                  onChanged: (v) => setDialogState(() => plan = v),
+                ),
+                const Divider(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Row(
+                    children: [
+                      const SizedBox(width: 120, child: Text('思考强度')),
+                      Expanded(
+                        child: Slider(
+                          value: effort.toDouble(),
+                          min: 0,
+                          max: 100,
+                          divisions: 4,
+                          label: MIXConfig.effortValueLabel(effort),
+                          onChanged: (v) =>
+                              setDialogState(() => effort = v.round()),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 40,
+                        child: Text(
+                          MIXConfig.effortValueLabel(effort),
+                          textAlign: TextAlign.end,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (wf != _workflowId) _workflowId = wf; // 保留会话上下文（P5）。
+                if (plan != _planMode) _planMode = plan;
+                if (effort != _chatEffort) {
+                  _chatEffort = effort;
+                  MIXConfig.saveEffort('chat', effort);
+                }
+                setState(() {});
+                Navigator.pop(ctx);
+              },
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _send() async {
     final text = _controller.text.trim();
     if (text.isEmpty || _running) return;
@@ -1557,135 +1655,18 @@ class _ChatScreenState extends State<ChatScreen> {
       appBar: AppBar(
         title: const Text('MIX'),
         actions: [
-          // 思考强度选择器：回答问题时可选极低~极高（各内部流程在设置里独立调）。
-          PopupMenuButton<int>(
-            tooltip: '思考强度：${MIXConfig.effortValueLabel(_chatEffort)}',
-            onSelected: (v) {
-              setState(() => _chatEffort = v);
-              MIXConfig.saveEffort('chat', v);
-            },
-            itemBuilder: (_) => [
-              for (final v in const [0, 25, 50, 75, 100])
-                PopupMenuItem(
-                  value: v,
-                  child: Row(
-                    children: [
-                      Icon(
-                        v < 40
-                            ? Icons.bolt
-                            : v >= 80
-                                ? Icons.auto_awesome
-                                : Icons.tune,
-                        size: 18,
-                        color: _chatEffort == v
-                            ? context.appPalette.primary
-                            : context.appPalette.textSecondary,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(MIXConfig.effortValueLabel(v)),
-                      if (_chatEffort == v) ...[
-                        const SizedBox(width: 6),
-                        Icon(Icons.check,
-                            size: 14, color: context.appPalette.primary),
-                      ],
-                    ],
-                  ),
-                ),
-            ],
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 6),
-              child: Icon(
-                _chatEffort < 40
-                    ? Icons.bolt
-                    : _chatEffort >= 80
-                        ? Icons.auto_awesome
-                        : Icons.tune,
-                size: 20,
-                color: context.appPalette.textSecondary,
-              ),
-            ),
-          ),
-          // 工作流选择器。
-          PopupMenuButton<String>(
-            tooltip: '工作流：${_currentWorkflow.name}',
-            onSelected: (id) => setState(() => _workflowId = id),
-            itemBuilder: (_) => [
-              for (final w in builtinWorkflows)
-                PopupMenuItem(
-                  value: w.id,
-                  child: Row(
-                    children: [
-                      Icon(
-                        w.id == 'coding'
-                            ? Icons.code
-                            : w.id == 'research'
-                                ? Icons.search
-                                : w.id == 'company'
-                                    ? Icons.apartment
-                                    : Icons.home,
-                        size: 18,
-                        color: _workflowId == w.id
-                            ? context.appPalette.primary
-                            : context.appPalette.textSecondary,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Row(
-                              children: [
-                                Text(w.name),
-                                if (_workflowId == w.id) ...[
-                                  SizedBox(width: 6),
-                                  Icon(Icons.check,
-                                      size: 14, color: context.appPalette.primary),
-                                ],
-                              ],
-                            ),
-                            Text(
-                              w.description,
-                              style: TextStyle(
-                                  fontSize: 11, color: context.appPalette.textSecondary),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8),
-              child: Icon(Icons.tune, size: 20,
-                  color: _currentWorkflow.id == 'coding'
-                      ? context.appPalette.primary
-                      : context.appPalette.textSecondary),
-            ),
-          ),
-          // 更多菜单：计划/GitHub/设置（收纳二级入口）。
+          // 更多菜单：模式/计划/思考强度/内容/系统（二级入口收纳，避免主界面臃肿）。
           PopupMenuButton<String>(
             tooltip: '更多',
             onSelected: (v) {
               switch (v) {
                 case 'new_session':
                   _newSession();
-                case 'plan':
-                  setState(() => _planMode = !_planMode);
-                case 'theme':
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const ThemeScreen()),
-                  );
+                case 'config':
+                  _showModeDialog();
                 case 'notes':
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const printnotes.MainPage()),
-                  );
-                case 'files':
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const FileBrowserScreen()),
                   );
                 case 'workspace':
                   Navigator.of(context).push(
@@ -1701,9 +1682,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   );
               }
             },
-            // 分组：会话 / 内容 / 系统。工作区仅 Linux 桌面显示（Android 上用不到）。
+            // 精简菜单：新建 + 模式（模式/计划/强度合并）+ 笔记 + 设置。工作区仅 Linux。
             itemBuilder: (_) => [
-              // ── 会话 ──
               PopupMenuItem(
                 value: 'new_session',
                 child: Row(
@@ -1714,20 +1694,21 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
               ),
+              PopupMenuDivider(),
               PopupMenuItem(
-                value: 'plan',
+                value: 'config',
                 child: Row(
                   children: [
-                    Icon(_planMode ? Icons.check_circle : Icons.rule,
-                        size: 18,
-                        color: _planMode ? context.appPalette.primary : context.appPalette.textSecondary),
+                    Icon(Icons.swap_horiz, size: 18,
+                        color: context.appPalette.textSecondary),
                     const SizedBox(width: 8),
-                    Text(_planMode ? '计划模式（开）' : '计划模式（关）'),
+                    Text('模式：${_currentWorkflow.name}'
+                        '${_planMode ? ' · 计划' : ''}'
+                        ' · ${MIXConfig.effortValueLabel(_chatEffort)}'),
                   ],
                 ),
               ),
               PopupMenuDivider(),
-              // ── 内容 ──
               PopupMenuItem(
                 value: 'notes',
                 child: Row(
@@ -1735,28 +1716,6 @@ class _ChatScreenState extends State<ChatScreen> {
                     Icon(Icons.menu_book_outlined, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
                     Text('笔记库'),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: 'files',
-                child: Row(
-                  children: [
-                    Icon(Icons.code, size: 18, color: context.appPalette.textSecondary),
-                    SizedBox(width: 8),
-                    Text('代码'),
-                  ],
-                ),
-              ),
-              PopupMenuDivider(),
-              // ── 系统 ──
-              PopupMenuItem(
-                value: 'theme',
-                child: Row(
-                  children: [
-                    Icon(Icons.palette_outlined, size: 18, color: context.appPalette.textSecondary),
-                    SizedBox(width: 8),
-                    Text('主题'),
                   ],
                 ),
               ),

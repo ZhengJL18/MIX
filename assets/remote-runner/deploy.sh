@@ -20,6 +20,14 @@ echo ""
 mkdir -p /opt/mix-runner
 cp "$(dirname "$0")/server.py" /opt/mix-runner/server.py
 
+# 1.5 格式转换依赖（/extract 端点）：PyMuPDF + weasyprint(pip)，
+#     tesseract(中文) + pandoc(apt)。体积较大，首次部署需几分钟。
+echo "-- 安装 /extract 依赖（PyMuPDF / tesseract / pandoc / weasyprint）--"
+pip3 install --break-system-packages --quiet pymupdf weasyprint 2>/dev/null \
+  || pip3 install --quiet pymupdf weasyprint
+apt-get install -y -qq tesseract-ocr tesseract-ocr-chi-sim pandoc >/dev/null 2>&1 \
+  || apt-get install -y -qq tesseract-ocr pandoc
+
 # 2. matplotlib 缓存目录（nobody 用户无 $HOME，必须指定）
 mkdir -p /tmp/mplconfig && chmod 777 /tmp/mplconfig
 

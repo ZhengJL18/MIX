@@ -10,6 +10,7 @@ import 'package:git2dart/git2dart.dart';
 import 'package:git2dart_binaries/git2dart_binaries.dart'
     show AndroidSSLHelper;
 
+import '../services/github_service.dart';
 import 'registry.dart';
 
 bool _sslInitialized = false;
@@ -27,6 +28,111 @@ String _resolvePath(String? path) {
   if (path != null && path.trim().isNotEmpty) return path.trim();
   if (_gitCwd != null && _gitCwd!.isNotEmpty) return _gitCwd!;
   return Directory.current.path;
+}
+
+/// 解析 git 认证 token：显式传入的 token 优先；否则自动读 SharedPreferences
+/// 里配置的 GitHub PAT（flutter.github_pat_token），避免 git push 需要认证时
+/// 还要用户单独把 token 告诉 agent。
+///
+/// **代码规范**：所有需要 GitHub 认证的工具一律走 [_resolveToken]，
+/// 不要求 agent 在参数里手动填 token（配置里已有就直接用）。
+Future<String?> _resolveToken(String? explicit) async {
+  if (explicit != null && explicit.isNotEmpty) return explicit;
+  try {
+    final creds = await loadGitHubCredentials();
+    return creds?.token;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// github_ci_logs：读取 GitHub Actions CI 运行状态与失败日志。
+/// 用配置里的 PAT 自动认证（走 [_resolveToken]），不要求手动传 token。
+Future<String> _handleCiLogs(Map<String, dynamic> args,
+    [Map<String, dynamic>? kwargs]) async {
+  final repo = (args['repo'] as String? ?? 'ZhengJL18/MIX').trim();
+  final runId = (args['run_id'] as num?)?.toInt();
+  final token = await _resolveToken(args['token'] as String?);
+  if (token == null || token.isEmpty) {
+    return toolError('github_ci_logs: 未配置 GitHub PAT（设置 → GitHub 里填）');
+  }
+  try {
+    final runs = await fetchWorkflowRuns(token, repo);
+    if (runs.isEmpty) return toolResult({'repo': repo, 'runs': [], 'hint': '没有 CI 运行记录'});
+
+    // 选要看的运行：显式 run_id，否则最新一条失败/进行中的运行。
+    var run = runs.first;
+    if (runId != null) {
+      final found = runs.where((r) => r['run_id'] == runId).toList();
+      if (found.isNotEmpty) {
+        run = found.first;
+      } else {
+        return toolError('github_ci_logs: 未找到 run_id=$runId（最近 ${runs.length} 条里）');
+      }
+    }
+    final targetRunId = run['run_id'] as int;
+    final conclusion = run['conclusion'] ?? run['status'];
+
+    if (conclusion == 'success') {
+      return toolResult({
+        'repo': repo,
+        'run_id': targetRunId,
+        'name': run['name'],
+        'conclusion': conclusion,
+        'runs': runs,
+        'hint': '该次 CI 成功，无报错日志。',
+      });
+    }
+
+    // 找失败的 job → 第一个失败的 step → 拉日志。
+    final jobs = await fetchRunJobs(token, repo, targetRunId);
+    final failedJobs =
+        jobs.where((j) => j['conclusion'] == 'failure').toList();
+    if (failedJobs.isEmpty) {
+      return toolResult({
+        'repo': repo,
+        'run_id': targetRunId,
+        'conclusion': conclusion,
+        'runs': runs,
+        'jobs': jobs,
+        'hint': '没有标记为 failure 的 job（可能在跑或 cancelled）',
+      });
+    }
+    final job = failedJobs.first;
+    final failedSteps = (job['steps'] as List)
+        .where((s) => s['conclusion'] == 'failure')
+        .toList();
+    final stepName = failedSteps.isNotEmpty
+        ? (failedSteps.first['name'] as String)
+        : ((job['steps'] as List).isNotEmpty
+            ? (job['steps'].last['name'] as String)
+            : '');
+    final log = stepName.isNotEmpty
+        ? await fetchRunStepLog(
+            token, repo, targetRunId, job['name'] as String, stepName)
+        : '';
+
+    // 截断日志，只保留尾部最有用的部分。
+    const maxChars = 12000;
+    final trimmed = log.length > maxChars
+        ? '...[前 ${log.length - maxChars} 字符已省略]...\n${log.substring(log.length - maxChars)}'
+        : log;
+
+    return toolResult({
+      'repo': repo,
+      'run_id': targetRunId,
+      'name': run['name'],
+      'conclusion': conclusion,
+      'failed_job': job['name'],
+      'failed_step': stepName,
+      'runs': runs,
+      'jobs': jobs,
+      'log': trimmed,
+      'hint': '失败步骤日志已附上（尾部 ${maxChars} 字符）。',
+    });
+  } catch (e) {
+    return toolError('github_ci_logs failed: $e');
+  }
 }
 
 /// 初始化 libgit2 的 SSL 证书配置（Android 必需）。
@@ -578,7 +684,7 @@ void registerGitTools() {
       return gitClone(
         url: _arg(args, 'url'),
         localPath: _arg(args, 'local_path'),
-        token: args['token'] as String?,
+        token: await _resolveToken(args['token'] as String?),
       );
     },
     emoji: '🐙',
@@ -591,7 +697,7 @@ void registerGitTools() {
       await ensureGitSsl();
       return gitPush(
         path: _pathArg(args),
-        token: args['token'] as String?,
+        token: await _resolveToken(args['token'] as String?),
         branch: _arg(args, 'branch', 'master'),
       );
     },
@@ -605,10 +711,18 @@ void registerGitTools() {
       await ensureGitSsl();
       return gitPull(
         path: _pathArg(args),
-        token: args['token'] as String?,
+        token: await _resolveToken(args['token'] as String?),
       );
     },
     emoji: '🐙',
+  );
+  registry.register(
+    name: 'github_ci_logs',
+    toolset: 'git',
+    schema: _gitCiLogsSchema,
+    handler: _handleCiLogs,
+    emoji: '📋',
+    maxResultSizeChars: 50000,
   );
 }
 
@@ -663,6 +777,33 @@ const Map<String, dynamic> _gitPullSchema = {
     'properties': {
       'path': {'type': 'string', 'description': 'Repository directory'},
       'token': {'type': 'string', 'description': 'Optional GitHub PAT token'},
+    },
+    'required': [],
+  },
+};
+
+const Map<String, dynamic> _gitCiLogsSchema = {
+  'name': 'github_ci_logs',
+  'description':
+      'Read GitHub Actions CI status and failure logs for a repo. Uses the '
+      'configured GitHub PAT automatically (no token argument needed). Use after '
+      'a push when the CI build failed — returns recent runs, the failed job/step, '
+      'and the tail of the failing step log so you can diagnose the error.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'repo': {
+        'type': 'string',
+        'description': 'Full repo name like owner/name (default ZhengJL18/MIX)',
+      },
+      'run_id': {
+        'type': 'integer',
+        'description': 'Specific workflow run id; default = latest run',
+      },
+      'token': {
+        'type': 'string',
+        'description': 'Optional PAT override (usually not needed — auto-read)',
+      },
     },
     'required': [],
   },

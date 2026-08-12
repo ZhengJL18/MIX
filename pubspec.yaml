@@ -110,6 +110,11 @@ flutter:
   # 不进 APK，保证安装包最小。
   uses-material-design: true
 
+  # KaTeX（md→PDF 离线渲染用）例外打包进 APK：约 600KB，换来回完全离线
+  # 的 md_to_pdf（WebView 本地加载，不依赖 CDN）。Obsidian 式稳定导出。
+  assets:
+    - assets/katex/
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

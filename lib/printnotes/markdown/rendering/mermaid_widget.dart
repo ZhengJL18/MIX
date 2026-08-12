@@ -34,6 +34,7 @@ class MermaidWidget extends StatefulWidget {
 class _MermaidWidgetState extends State<MermaidWidget> {
   String? _svg;
   String? _error;
+  String? _downloadHint; // 首次渲染需下载 mermaid.min.js 时显示进度
   bool _started = false; // 是否已触发渲染（懒加载）
 
   @override
@@ -109,16 +110,39 @@ class _MermaidWidgetState extends State<MermaidWidget> {
         ),
       );
     }
-    return const SizedBox(
+    return SizedBox(
       width: double.infinity,
       height: 120,
-      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(strokeWidth: 2),
+            if (_downloadHint != null) ...[
+              const SizedBox(height: 8),
+              Text(_downloadHint!,
+                  style: const TextStyle(fontSize: 11, color: Colors.grey)),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
+  String _fmtMB(int bytes) => (bytes / (1024 * 1024)).toStringAsFixed(1);
+
   Future<void> _render() async {
     try {
-      final svg = await MermaidRenderer.instance.render(widget.code);
+      final svg = await MermaidRenderer.instance.render(
+        widget.code,
+        onProgress: (done, total, name) {
+          if (!mounted) return;
+          final hint =
+              total > 0 ? '正在下载 $name ${_fmtMB(done)}/${_fmtMB(total)} MB'
+                  : '正在下载 $name ${_fmtMB(done)} MB…';
+          if (hint != _downloadHint) setState(() => _downloadHint = hint);
+        },
+      );
       if (!mounted) return;
       setState(() => _svg = svg);
     } catch (e) {
@@ -146,8 +170,9 @@ class MermaidRenderer {
   Future<void>? _initFuture;
   bool _disposed = false;
 
-  // 串行队列：<code, completer>
-  final Queue<(String, Completer<String>)> _queue = Queue();
+  // 串行队列：<code, completer, onProgress>
+  final Queue<(String, Completer<String>, void Function(int, int, String)?)> _queue =
+      Queue();
   bool _processing = false;
 
   // 缓存
@@ -161,7 +186,10 @@ class MermaidRenderer {
   Timer? _idleTimer;
 
   /// 渲染 mermaid 代码为 SVG 字符串（带缓存与去重）。
-  Future<String> render(String code) {
+  Future<String> render(
+    String code, {
+    void Function(int, int, String)? onProgress,
+  }) {
     // Linux 桌面：flutter_inappwebview 无实现，直接降级为不可用提示
     // （UI 显示"mermaid 渲染失败"，不崩溃）。
     if (Platform.isLinux) {
@@ -175,7 +203,7 @@ class MermaidRenderer {
 
     final completer = Completer<String>();
     _inflight[code] = completer.future;
-    _queue.add((code, completer));
+    _queue.add((code, completer, onProgress));
     _pump();
     return completer.future;
   }
@@ -185,9 +213,9 @@ class MermaidRenderer {
     _processing = true;
     try {
       while (_queue.isNotEmpty) {
-        final (code, completer) = _queue.removeFirst();
+        final (code, completer, onProgress) = _queue.removeFirst();
         try {
-          final svg = await _renderWithWebView(code);
+          final svg = await _renderWithWebView(code, onProgress);
           _putCache(code, svg);
           if (!completer.isCompleted) completer.complete(svg);
         } catch (e) {
@@ -210,7 +238,10 @@ class MermaidRenderer {
   }
 
   /// 用全局唯一 WebView 渲染单个 mermaid 代码。
-  Future<String> _renderWithWebView(String code) async {
+  Future<String> _renderWithWebView(
+    String code,
+    void Function(int, int, String)? onProgress,
+  ) async {
     _idleTimer?.cancel();
     await _ensureInit();
     final controller = _controller!;
@@ -218,7 +249,8 @@ class MermaidRenderer {
     _current = completer;
 
     // mermaid.min.js 按需下载：首次渲染前确保本地缓存就绪（未缓存则下载）
-    final jsPath = await RemoteAssetManager.instance.ensure('mermaid');
+    final jsPath =
+        await RemoteAssetManager.instance.ensure('mermaid', onProgress: onProgress);
     final jsDir = File(jsPath).parent.path;
 
     await controller.loadData(

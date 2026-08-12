@@ -323,6 +323,109 @@ String moveFileTool({required String src, required String dst}) {
   }
 }
 
+/// delete_file 工具：删除单个文件。dryRun 时只报告将删除什么，不真正删除。
+String deleteFileTool({required String path, bool dryRun = false}) {
+  if (_isBlockedDevice(path)) {
+    return toolError("delete_file: source is a blocked device path: $path");
+  }
+  final sensitiveErr = getWriteDeniedError(path, verb: 'Delete');
+  if (sensitiveErr != null) {
+    return toolError(sensitiveErr);
+  }
+  try {
+    final absPath = _absPath(path);
+    final f = File(absPath);
+    if (!f.existsSync()) {
+      return jsonEncode({'path': absPath, 'deleted': false, 'error': 'file does not exist'});
+    }
+    if (Directory(absPath).existsSync()) {
+      return jsonEncode({
+        'path': absPath,
+        'deleted': false,
+        'error': 'is a directory, use delete_dir instead',
+      });
+    }
+    if (dryRun) {
+      return jsonEncode({
+        'path': absPath,
+        'dry_run': true,
+        'would_delete': true,
+        'size_bytes': f.lengthSync(),
+        'hint': 'call again with dry_run=false to actually delete',
+      });
+    }
+    final fileOps = _getFileOps();
+    final result = fileOps.deleteFile(path);
+    final resultDict = result.toDict();
+    resultDict['path'] = absPath;
+    if (result.error == null) {
+      resultDict['deleted'] = true;
+      resultDict['files_modified'] = [absPath];
+    }
+    return jsonEncode(resultDict);
+  } catch (e) {
+    return toolError('$e');
+  }
+}
+
+/// delete_dir 工具：递归删除目录及其中内容。dryRun 时只统计并列出将删除项。
+String deleteDirTool({required String path, bool dryRun = false}) {
+  if (_isBlockedDevice(path)) {
+    return toolError("delete_dir: source is a blocked device path: $path");
+  }
+  final sensitiveErr = getWriteDeniedError(path, verb: 'Delete');
+  if (sensitiveErr != null) {
+    return toolError(sensitiveErr);
+  }
+  try {
+    final absPath = _absPath(path);
+    final d = Directory(absPath);
+    if (!d.existsSync()) {
+      return jsonEncode({'path': absPath, 'deleted': false, 'error': 'directory does not exist'});
+    }
+    if (File(absPath).existsSync()) {
+      return jsonEncode({
+        'path': absPath,
+        'deleted': false,
+        'error': 'is a file, use delete_file instead',
+      });
+    }
+    if (dryRun) {
+      var fileCount = 0;
+      var dirCount = 0;
+      final sample = <String>[];
+      d.listSync(recursive: true, followLinks: false).take(2000).forEach((e) {
+        if (e is File) {
+          fileCount++;
+          if (sample.length < 20) sample.add(e.path);
+        } else if (e is Directory) {
+          dirCount++;
+        }
+      });
+      return jsonEncode({
+        'path': absPath,
+        'dry_run': true,
+        'would_delete': true,
+        'file_count': fileCount,
+        'dir_count': dirCount,
+        'sample_entries': sample,
+        'hint': 'call again with dry_run=false to actually delete',
+      });
+    }
+    final fileOps = _getFileOps();
+    final result = fileOps.deletePath(path, recursive: true);
+    final resultDict = result.toDict();
+    resultDict['path'] = absPath;
+    if (result.error == null) {
+      resultDict['deleted'] = true;
+      resultDict['files_modified'] = [absPath];
+    }
+    return jsonEncode(resultDict);
+  } catch (e) {
+    return toolError('$e');
+  }
+}
+
 /// patch 工具：replace 模式或 V4A 模式。
 String patchTool({
   String mode = 'replace',
@@ -657,6 +760,50 @@ const Map<String, dynamic> moveFileSchema = {
   },
 };
 
+const Map<String, dynamic> deleteFileSchema = {
+  'name': 'delete_file',
+  'description':
+      "Delete a single file permanently. Use dry_run=true first to confirm what will be deleted (prevents accidental deletion), then call again with dry_run=false to delete. Protected system/credential paths are rejected. Use delete_dir for directories.",
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'path': {
+        'type': 'string',
+        'description':
+            'Path of the file to delete (file or directory), absolute or relative to the notes root',
+      },
+      'dry_run': {
+        'type': 'boolean',
+        'description':
+            'If true, only report whether the file exists and would be deleted — nothing is removed',
+      },
+    },
+    'required': ['path'],
+  },
+};
+
+const Map<String, dynamic> deleteDirSchema = {
+  'name': 'delete_dir',
+  'description':
+      "Recursively delete a directory and everything inside it, permanently. Use dry_run=true first to preview the file/dir counts and a sample of entries (prevents accidental deletion), then call again with dry_run=false to delete. Protected system/credential paths are rejected. Use delete_file for a single file.",
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'path': {
+        'type': 'string',
+        'description':
+            'Path of the directory to delete, absolute or relative to the notes root',
+      },
+      'dry_run': {
+        'type': 'boolean',
+        'description':
+            'If true, only count and sample entries that would be deleted — nothing is removed',
+      },
+    },
+    'required': ['path'],
+  },
+};
+
 /// handler 们。
 FutureOr<dynamic> _handleReadFile(Map<String, dynamic> args, [Map<String, dynamic>? kwargs]) {
   return readFileTool(
@@ -732,6 +879,28 @@ FutureOr<dynamic> _handleMoveFile(Map<String, dynamic> args, [Map<String, dynami
   return moveFileTool(src: args['src'] as String, dst: args['dst'] as String);
 }
 
+FutureOr<dynamic> _handleDeleteFile(Map<String, dynamic> args, [Map<String, dynamic>? kwargs]) {
+  if (args['path'] is! String) {
+    return toolError(
+        "delete_file: missing required field 'path'. Re-emit the tool call with 'path' set.");
+  }
+  return deleteFileTool(
+    path: args['path'] as String,
+    dryRun: args['dry_run'] == true,
+  );
+}
+
+FutureOr<dynamic> _handleDeleteDir(Map<String, dynamic> args, [Map<String, dynamic>? kwargs]) {
+  if (args['path'] is! String) {
+    return toolError(
+        "delete_dir: missing required field 'path'. Re-emit the tool call with 'path' set.");
+  }
+  return deleteDirTool(
+    path: args['path'] as String,
+    dryRun: args['dry_run'] == true,
+  );
+}
+
 bool _checkFileReqs() => true;
 
 /// 注册 file 工具集（对应 file_tools.py 模块层注册）。
@@ -788,6 +957,24 @@ void registerFileTools() {
     handler: _handleMoveFile,
     checkFn: _checkFileReqs,
     emoji: '🚚',
+    maxResultSizeChars: 100000,
+  );
+  registry.register(
+    name: 'delete_file',
+    toolset: 'file',
+    schema: deleteFileSchema,
+    handler: _handleDeleteFile,
+    checkFn: _checkFileReqs,
+    emoji: '🗑️',
+    maxResultSizeChars: 100000,
+  );
+  registry.register(
+    name: 'delete_dir',
+    toolset: 'file',
+    schema: deleteDirSchema,
+    handler: _handleDeleteDir,
+    checkFn: _checkFileReqs,
+    emoji: '🗂️',
     maxResultSizeChars: 100000,
   );
 }

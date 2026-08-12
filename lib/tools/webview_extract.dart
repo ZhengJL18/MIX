@@ -8,8 +8,8 @@
 ///
 /// **内存**：WebView 复用 [SharedWebview] 单例（单个无头 WebView + 串行 +
 /// 空闲释放），避免连续抓取时反复创建 WebView 进程（Android 每个 100-200MB）。
-/// **登录态**：共享平台级全局 cookie jar，用户在「网页登录」页登录某站点后，
-/// 这里抓取同一域名自动带登录态。
+/// **登录态**：共享平台级全局 cookie jar（「网页登录」页已移除，cookie 由
+/// WebView 自身会话积累）。
 library;
 
 import 'dart:convert';

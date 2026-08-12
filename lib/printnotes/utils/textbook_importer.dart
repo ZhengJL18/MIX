@@ -17,7 +17,8 @@ class TextbookSource {
   final String subject; // 科目
   final String description; // 一句话描述
   final String license; // 许可证
-  final String tarballUrl; // GitHub codeload tarball
+  final String tarballUrl; // GitHub codeload tarball（兜底）
+  final String? serverTarballUrl; // 自有云服务器镜像（优先，快且稳）
   final String sourceUrl; // 源仓库主页
   final bool isIpynb; // 源是否 ipynb（需转 md）
   final int chapterCount; // 预估章节数
@@ -30,11 +31,16 @@ class TextbookSource {
     required this.license,
     required this.tarballUrl,
     required this.sourceUrl,
+    this.serverTarballUrl,
     this.isIpynb = false,
     this.chapterCount = 0,
     this.subdir,
   });
 }
+
+/// 自有云服务器教材镜像根（nginx 静态托管，见 assets/remote-runner / nginx
+/// /textbooks/ 路由）。优先从这里拉，GitHub codeload 仅兜底（国内访问不稳）。
+const String kTextbookServerRoot = 'http://43.139.179.58/textbooks';
 
 /// 内置教材源清单（中文为主，英文 CC BY 备用）。
 const List<TextbookSource> kTextbookSources = [
@@ -43,6 +49,7 @@ const List<TextbookSource> kTextbookSources = [
     subject: '线性代数',
     description: 'zlotus 中文笔记，35 讲，LaTeX 公式 + Python 示例',
     license: '无明确许可（来源 zlotus/notes-linear-algebra）',
+    serverTarballUrl: '$kTextbookServerRoot/notes-linear-algebra.tar.gz',
     tarballUrl:
         'https://codeload.github.com/zlotus/notes-linear-algebra/tar.gz/refs/heads/master',
     sourceUrl: 'https://github.com/zlotus/notes-linear-algebra',
@@ -54,6 +61,7 @@ const List<TextbookSource> kTextbookSources = [
     subject: '高数+线代',
     description: 'Obsidian 讲义，高数/线代完整，张宇体系≈同济教材',
     license: 'GPL-3.0',
+    serverTarballUrl: '$kTextbookServerRoot/obsidian_math.tar.gz',
     tarballUrl:
         'https://codeload.github.com/BlandAlpha/obsidian_math/tar.gz/refs/heads/master',
     sourceUrl: 'https://github.com/BlandAlpha/obsidian_math',
@@ -64,6 +72,7 @@ const List<TextbookSource> kTextbookSources = [
     subject: '概率论',
     description: 'Berkeley Prob140 中文翻译，25 章',
     license: 'CC BY-NC-SA 4.0',
+    serverTarballUrl: '$kTextbookServerRoot/prob140-textbook-zh.tar.gz',
     tarballUrl:
         'https://codeload.github.com/fly-fisher/prob140-textbook-zh/tar.gz/refs/heads/master',
     sourceUrl: 'https://github.com/fly-fisher/prob140-textbook-zh',
@@ -85,10 +94,26 @@ Future<String> importTextbook(
   final targetName = _sanitizeDirName(src.name);
   final targetDir = Directory('${libDir.path}/$targetName');
 
-  // 下载 tarball 到临时文件。
+  // 下载 tarball 到临时文件：优先自有服务器镜像，失败兜底 GitHub codeload。
   final tmp = File('${libDir.path}/.tmp_$targetName.tar.gz');
   onProgress?.call(0.05);
-  await _downloadToFile(src.tarballUrl, tmp);
+  final urls = <String>[
+    if (src.serverTarballUrl != null) src.serverTarballUrl!,
+    src.tarballUrl,
+  ];
+  String? lastErr;
+  for (final url in urls) {
+    try {
+      await _downloadToFile(url, tmp);
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = '$url → $e';
+    }
+  }
+  if (lastErr != null) {
+    throw StateError('教材下载失败（服务器与 GitHub 均不可用）: $lastErr');
+  }
   onProgress?.call(0.4);
 
   // 解压。

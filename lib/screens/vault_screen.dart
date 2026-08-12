@@ -116,6 +116,23 @@ class _VaultScreenState extends State<VaultScreen> {
     });
   }
 
+  /// 列出 documents 顶层可备份目录（跳过隐藏/缓存/仓库根），供用户勾选。
+  List<String> _listBackupCandidates(String basePath) {
+    const skipNames = {'.git', '.dart_tool', 'build', 'third_party', 'site',
+      'cache', 'remote_assets', 'refine', 'skills'};
+    final out = <String>[];
+    try {
+      for (final e in Directory(basePath).listSync(followLinks: false)) {
+        if (e is! Directory) continue;
+        final name = e.path.split('/').last;
+        if (name.startsWith('.') || skipNames.contains(name)) continue;
+        if (Directory('${e.path}/.git').existsSync()) continue; // 仓库根
+        out.add(name);
+      }
+    } catch (_) {}
+    return out;
+  }
+
   Future<void> _upload() async {
     final cfg = _config;
     if (cfg == null) return;
@@ -124,12 +141,15 @@ class _VaultScreenState extends State<VaultScreen> {
       _setMsg('请设置保险柜加密密钥（用于加密备份数据）');
       return;
     }
+    // 让用户选要备份的文件夹；取消则不上传。
+    final selected = await _selectBackupFolders();
+    if (selected == null) return;
     setState(() {
       _busy = true;
       _msg = '打包并加密中…';
     });
     try {
-      final payload = await buildBackupPayload();
+      final payload = await buildBackupPayload(includePaths: selected);
       final encrypted = encryptPayload(payload, secret);
       setState(() => _msg = '上传中…');
       await uploadBackup(cfg, encrypted);
@@ -139,6 +159,61 @@ class _VaultScreenState extends State<VaultScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// 备份文件夹选择对话框（默认全选可取消勾选）。
+  Future<List<String>?> _selectBackupFolders() async {
+    final base = (await getApplicationDocumentsDirectory()).path;
+    if (!mounted) return null;
+    final candidates = _listBackupCandidates(base);
+    if (candidates.isEmpty) {
+      return const <String>[];
+    }
+    final selected = <String>{...candidates};
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('选择要备份的文件夹'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  for (final d in candidates)
+                    CheckboxListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(d),
+                      value: selected.contains(d),
+                      onChanged: (v) => setDialogState(() {
+                        if (v == true) {
+                          selected.add(d);
+                        } else {
+                          selected.remove(d);
+                        }
+                      }),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('确定'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return null;
+    return selected.toList();
   }
 
   Future<void> _download() async {
