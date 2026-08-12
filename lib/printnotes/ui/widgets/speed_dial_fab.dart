@@ -4,6 +4,7 @@ import 'package:flutter_speed_dial/flutter_speed_dial.dart';
 
 import 'package:mix/printnotes/providers/navigation_provider.dart';
 import 'package:mix/printnotes/utils/handlers/item_create.dart';
+import 'package:mix/printnotes/ui/components/dialogs/textbook_import_dialog.dart';
 
 Widget speedDialFAB(BuildContext context, String currentFolder) {
   return SpeedDial(
@@ -37,7 +38,12 @@ Widget speedDialFAB(BuildContext context, String currentFolder) {
         label: 'Open External File',
         onTap: () async =>
             await context.read<NavigationProvider>().openExternalFile(context),
-      )
+      ),
+      SpeedDialChild(
+        child: const Icon(Icons.library_books_outlined),
+        label: '导入教材',
+        onTap: () => showTextbookImportDialog(context),
+      ),
     ],
   );
 }
