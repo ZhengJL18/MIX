@@ -87,6 +87,14 @@ String gitStatus({required String path}) {
         lines.add('  - ${s.path}');
       }
     }
+    // 未跟踪文件（untracked）：工作区有、index 没有的新文件。
+    final untracked = _untrackedFiles(repo);
+    if (untracked.isNotEmpty) {
+      lines.add('* 未跟踪文件:');
+      for (final u in untracked) {
+        lines.add('  - $u');
+      }
+    }
     return lines.join('\n');
   } catch (e) {
     return toolError('git status failed: $e');
@@ -208,6 +216,30 @@ String? _tryHeadBranchName(Repository repo) {
   }
 }
 
+/// 列出工作区里未被 index 跟踪的新文件（untracked）。
+/// 遍历仓库工作树（跳过 .git），对比 index 中的路径。
+List<String> _untrackedFiles(Repository repo) {
+  final root = repo.path; // 通常是 <repo>/.git/
+  final workdir = root.endsWith('/.git/')
+      ? root.substring(0, root.length - 5)
+      : root.replaceAll(RegExp(r'/+$'), '');
+  final indexed = <String>{for (final e in repo.index) e.path};
+  final untracked = <String>[];
+  try {
+    final walker = Directory(workdir).listSync(recursive: true, followLinks: false);
+    for (final entry in walker) {
+      if (entry is! File) continue;
+      final rel = entry.path.substring(workdir.length + 1).replaceAll('\\', '/');
+      if (rel.startsWith('.git/') || rel == '.git') continue;
+      if (!indexed.contains(rel)) {
+        untracked.add(rel);
+      }
+    }
+  } catch (_) {}
+  // 限制数量，避免超长输出。
+  return untracked.length > 50 ? untracked.sublist(0, 50) : untracked;
+}
+
 Signature _makeSignature(Repository repo, String? name, String? email) {
   if (name != null && email != null) {
     return Signature.create(name: name, email: email);
@@ -321,7 +353,10 @@ String gitPush({
   }
 }
 
-/// git pull：从 origin 拉取并合并。
+/// git pull：从 origin 拉取，但**不做硬 reset**（避免丢本地未 push 提交）。
+///
+/// libgit2 绑定无 merge 能力，这里 fetch 后报告本地与 origin 的领先/落后；
+/// 需要真正合并时（Linux）用 run_terminal 跑 `git merge` / `git pull --rebase`。
 String gitPull({
   required String path,
   String? token,
@@ -337,21 +372,28 @@ String gitPull({
       refspecs: const [],
       callbacks: callbacks,
     );
-    // 拉取后 merge origin/当前分支（简化：直接 reset 到 origin）。
     final headName = repo.head.name;
     final shortName = headName.split('/').last;
+    // 对比本地 head 与 origin/<branch>：一致则最新；不一致提示用终端合并。
+    final localHead = repo.head.target;
     try {
-      final branch =
-          Branch.lookup(repo: repo, name: 'origin/$shortName', type: GitBranch.remote);
-      repo.reset(oid: branch.target, resetType: GitReset.hard);
+      final remoteBranch = Branch.lookup(
+          repo: repo, name: 'origin/$shortName', type: GitBranch.remote);
+      if (localHead == remoteBranch.target) {
+        return '已是最新（origin/$shortName 与本地一致）';
+      }
     } catch (_) {
-      // origin 分支不存在（首次 fetch）→ 只下载对象，不 reset。
+      // origin 分支不存在（首次 fetch）→ 只下载对象。
+      return '已 fetch origin（首次，本地尚无对应分支）。可 push 到 origin。';
     }
-    return 'Pulled origin/$shortName';
+    return '已 fetch origin/$shortName（本地与远程不同步）。\n'
+        '未自动合并（避免硬 reset 丢提交）。如需合并，Linux 上用 '
+        'run_terminal 执行：git merge origin/$shortName 或 git pull --rebase';
   } catch (e) {
     return toolError('git pull failed: $e');
   }
 }
+
 
 // ============================================================================
 // Registry
