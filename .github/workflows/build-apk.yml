@@ -158,11 +158,10 @@ jobs:
           name: mix-linux-deb
           path: build/linux/mix_*.deb
 
-      # push 才发 release（PR 只构建验证）。用 update_release 追加 deb 到同一 tag。
+      # push 才发 release（PR 只构建验证）。deb 追加到同一 tag 的 Release。
       - name: Publish Linux deb to Release
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.0+${{ github.run_number }}
-          update_release: true
           files: build/linux/mix_*.deb
