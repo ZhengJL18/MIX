@@ -418,7 +418,8 @@ class _NotesDisplayState extends State<NotesDisplay> {
                   ),
         floatingActionButton: _isSearching
             ? null
-            : speedDialFAB(context, _safeCreatePath(currentPath)),
+            : speedDialFAB(context, _safeCreatePath(currentPath),
+                onImported: _refreshPage),
         floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       ),
     );

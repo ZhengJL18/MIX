@@ -115,6 +115,19 @@ Future<String> importTextbook(
     final isMd = rel.endsWith('.md');
     final isIpynb = rel.endsWith('.ipynb');
     if (!isMd && !isIpynb) continue;
+    // 跳过非章节文件（README/LICENSE/欢迎页/说明）。
+    final base = rel.split('/').last.toLowerCase();
+    if (isMd &&
+        (base == 'readme.md' ||
+            base == 'license' ||
+            base == 'license.md' ||
+            base == '欢迎.md' ||
+            base == 'welcome.md' ||
+            base == '说明.md' ||
+            base == 'index.md' ||
+            base == 'introduction.md')) {
+      continue;
+    }
 
     final outRel = _outPath(src, rel, topDir);
     final out = File('${targetDir.path}/$outRel');

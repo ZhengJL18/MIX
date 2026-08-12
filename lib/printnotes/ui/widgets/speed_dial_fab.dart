@@ -6,7 +6,9 @@ import 'package:mix/printnotes/providers/navigation_provider.dart';
 import 'package:mix/printnotes/utils/handlers/item_create.dart';
 import 'package:mix/printnotes/ui/components/dialogs/textbook_import_dialog.dart';
 
-Widget speedDialFAB(BuildContext context, String currentFolder) {
+/// [onImported]：导入教材完成后回调（用于刷新列表）。
+Widget speedDialFAB(BuildContext context, String currentFolder,
+    {VoidCallback? onImported}) {
   return SpeedDial(
     icon: Icons.add,
     activeIcon: Icons.close,
@@ -42,7 +44,10 @@ Widget speedDialFAB(BuildContext context, String currentFolder) {
       SpeedDialChild(
         child: const Icon(Icons.library_books_outlined),
         label: '导入教材',
-        onTap: () => showTextbookImportDialog(context),
+        onTap: () async {
+          await showTextbookImportDialog(context);
+          onImported?.call();
+        },
       ),
     ],
   );
