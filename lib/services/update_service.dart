@@ -69,8 +69,6 @@ class UpdateService {
 
   /// 从国内镜像 /update/latest.json 读取（清单由服务器同步脚本生成）。
   static Future<UpdateInfo?> _fetchFromMirror() async {
-    // 镜像清单目前只同步 Android APK，Linux 桌面走 GitHub Releases 抓 .deb。
-    if (Platform.isLinux) return null;
     try {
       final resp =
           await http.get(Uri.parse(_mirrorManifestUrl)).timeout(_timeout);
@@ -78,7 +76,11 @@ class UpdateService {
       final data =
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       final remoteBuild = data['build'] as int? ?? 0;
-      final downloadUrl = data['apk_url'] as String? ?? '';
+      // 平台感知抓取：Android 抓 apk_url，Linux 抓 deb_url。
+      // 镜像同步脚本需同时同步 apk 与 deb；某平台资产缺失时该平台回退 GitHub。
+      final downloadUrl = Platform.isLinux
+          ? (data['deb_url'] as String? ?? '')
+          : (data['apk_url'] as String? ?? '');
       debugPrint('[Update] mirror build=$remoteBuild url=$downloadUrl');
       if (remoteBuild <= 0 || downloadUrl.isEmpty) return null;
 
