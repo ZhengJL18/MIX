@@ -116,66 +116,90 @@ Future<String> importTextbook(
   }
   onProgress?.call(0.4);
 
-  // 解压。
-  final bytes = await tmp.readAsBytes();
-  final archive = TarDecoder().decodeBytes(GZipDecoder().decodeBytes(bytes));
-  onProgress?.call(0.6);
-
-  // 解压后顶层目录名（GitHub tarball 是 <repo>-<branch>/）。
-  final topDir = archive.files.first.name.split('/').first;
-  final subPrefix = src.subdir != null ? '$topDir/${src.subdir}/' : '$topDir/';
-
-  await targetDir.create(recursive: true);
+  // 解压：gzip 用 dart:io 原生流式管道解到中间 tar 文件（不整包读内存），
+  // 再用 InputFileStream + TarDecoder.decodeStream 懒加载解析——文件内容
+  // 只在访问时按需从磁盘读，处理完立即 clear 释放，内存占用恒定。
+  // （旧实现 readAsBytes + GZipDecoder().decodeBytes + TarDecoder().decodeBytes
+  //   会把整个包与全部文件内容驻留内存，大教材在低内存设备上直接 OOM/卡死。）
+  final tarTmp = File('${libDir.path}/.tmp_$targetName.tar');
   var imported = 0;
-  for (final file in archive.files) {
-    if (!file.isFile) continue;
-    final rel = file.name.replaceAll('\\', '/');
-    // 防御 tar slip。
-    if (rel.contains('..') || rel.startsWith('/')) continue;
-    // 只取源子目录内的文件（md 源取 .md，ipynb 源取 .ipynb）。
-    final isInScope = src.subdir != null
-        ? rel.startsWith(subPrefix)
-        : rel.startsWith(topDir);
-    if (!isInScope) continue;
-    final isMd = rel.endsWith('.md');
-    final isIpynb = rel.endsWith('.ipynb');
-    if (!isMd && !isIpynb) continue;
-    // 跳过非章节文件（README/LICENSE/欢迎页/说明）。
-    final base = rel.split('/').last.toLowerCase();
-    if (isMd &&
-        (base == 'readme.md' ||
-            base == 'license' ||
-            base == 'license.md' ||
-            base == '欢迎.md' ||
-            base == 'welcome.md' ||
-            base == '说明.md' ||
-            base == 'index.md' ||
-            base == 'introduction.md')) {
-      continue;
-    }
+  try {
+    await tmp
+        .openRead()
+        .transform(gzip.decoder)
+        .pipe(tarTmp.openWrite());
+    onProgress?.call(0.55);
 
-    final outRel = _outPath(src, rel, topDir);
-    final out = File('${targetDir.path}/$outRel');
-    await out.parent.create(recursive: true);
+    final input = InputFileStream(tarTmp.path);
+    try {
+      final archive = TarDecoder().decodeStream(input);
+      onProgress?.call(0.6);
 
-    if (isMd) {
-      final content = _decodeUtf8(file.content as List<int>);
-      await out.writeAsString(content);
-      imported++;
-    } else if (isIpynb) {
-      final content = _decodeUtf8(file.content as List<int>);
-      final md = _ipynbToMarkdown(content);
-      if (md.trim().isNotEmpty) {
-        await out.writeAsString(md);
-        imported++;
+      // 解压后顶层目录名（GitHub tarball 是 <repo>-<branch>/）。
+      final topDir = archive.files.first.name.split('/').first;
+      final subPrefix = src.subdir != null ? '$topDir/${src.subdir}/' : '$topDir/';
+
+      await targetDir.create(recursive: true);
+      for (final file in archive.files) {
+        if (!file.isFile) continue;
+        final rel = file.name.replaceAll('\\', '/');
+        // 防御 tar slip。
+        if (rel.contains('..') || rel.startsWith('/')) continue;
+        // 只取源子目录内的文件（md 源取 .md，ipynb 源取 .ipynb）。
+        final isInScope = src.subdir != null
+            ? rel.startsWith(subPrefix)
+            : rel.startsWith(topDir);
+        if (!isInScope) continue;
+        final isMd = rel.endsWith('.md');
+        final isIpynb = rel.endsWith('.ipynb');
+        if (!isMd && !isIpynb) continue;
+        // 跳过非章节文件（README/LICENSE/欢迎页/说明）。
+        final base = rel.split('/').last.toLowerCase();
+        if (isMd &&
+            (base == 'readme.md' ||
+                base == 'license' ||
+                base == 'license.md' ||
+                base == '欢迎.md' ||
+                base == 'welcome.md' ||
+                base == '说明.md' ||
+                base == 'index.md' ||
+                base == 'introduction.md')) {
+          continue;
+        }
+
+        final outRel = _outPath(src, rel, topDir);
+        final out = File('${targetDir.path}/$outRel');
+        await out.parent.create(recursive: true);
+
+        // 懒加载读单个文件内容（此刻才真正从磁盘读），用完立即释放，
+        // 避免全部文件内容驻留内存。
+        if (isMd) {
+          final content = _decodeUtf8(file.content as List<int>);
+          await out.writeAsString(content);
+          imported++;
+        } else if (isIpynb) {
+          final content = _decodeUtf8(file.content as List<int>);
+          final md = _ipynbToMarkdown(content);
+          if (md.trim().isNotEmpty) {
+            await out.writeAsString(md);
+            imported++;
+          }
+        }
+        file.clear();
       }
+
+      // 许可/来源标注。
+      await _writeLicense(targetDir, src);
+    } finally {
+      input.closeSync();
     }
+  } finally {
+    try {
+      if (tarTmp.existsSync()) await tarTmp.delete();
+    } catch (_) {}
   }
 
-  // 许可/来源标注。
-  await _writeLicense(targetDir, src);
-
-  // 清理临时文件。
+  // 清理下载的 gzip 临时文件。
   try {
     if (tmp.existsSync()) await tmp.delete();
   } catch (_) {}

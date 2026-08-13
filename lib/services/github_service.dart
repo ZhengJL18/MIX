@@ -4,9 +4,11 @@
 library;
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 const String _tokenKey = 'github_pat_token';
@@ -179,6 +181,8 @@ Future<List<Map<String, dynamic>>> fetchRunJobs(
 }
 
 /// 下载某次运行的日志 zip，解压后提取指定 job/step 的文本（失败定位）。
+/// 流式下载到临时文件 + InputFileStream 懒加载解析，避免 CI 日志包（几十 MB）
+/// 整包读内存——与教材导入同一套防爆内存模式。
 Future<String> fetchRunStepLog(
   String token,
   String repo,
@@ -188,25 +192,44 @@ Future<String> fetchRunStepLog(
 ) async {
   final uri = Uri.parse(
       'https://api.github.com/repos/$repo/actions/runs/$runId/logs');
-  final resp = await http.get(uri, headers: {
-    'Authorization': 'Bearer $token',
-    'Accept': 'application/vnd.github+json',
-    'User-Agent': 'mix-agent',
-  }).timeout(const Duration(minutes: 2));
-  if (resp.statusCode != 200) {
-    throw GitHubApiException('下载 CI 日志失败: HTTP ${resp.statusCode}');
-  }
-  final archive = ZipDecoder().decodeBytes(resp.bodyBytes);
-  // zip 内文件形如 "<job>/<step>.txt"。
-  for (final f in archive.files) {
-    if (!f.isFile) continue;
-    final name = f.name.replaceAll('\\', '/');
-    if (name == '$jobName/$stepName.txt' ||
-        name.endsWith('/$stepName.txt')) {
-      return utf8.decode(f.content as List<int>, allowMalformed: true);
+  final tmp = File('${(await getTemporaryDirectory()).path}/ci-logs-$runId.zip');
+  try {
+    final request = http.Request('GET', uri);
+    final resp = await http.Client().send(request).timeout(const Duration(minutes: 3));
+    if (resp.statusCode != 200) {
+      throw GitHubApiException('下载 CI 日志失败: HTTP ${resp.statusCode}');
     }
+    final sink = tmp.openWrite();
+    try {
+      await for (final chunk in resp.stream) {
+        sink.add(chunk);
+      }
+      await sink.flush();
+    } finally {
+      await sink.close();
+    }
+
+    final input = InputFileStream(tmp.path);
+    try {
+      final archive = ZipDecoder().decodeStream(input);
+      // zip 内文件形如 "<job>/<step>.txt"。
+      for (final f in archive.files) {
+        if (!f.isFile) continue;
+        final name = f.name.replaceAll('\\', '/');
+        if (name == '$jobName/$stepName.txt' ||
+            name.endsWith('/$stepName.txt')) {
+          return utf8.decode(f.content as List<int>, allowMalformed: true);
+        }
+      }
+      return '（在日志包中未找到 $jobName/$stepName.txt）';
+    } finally {
+      input.closeSync();
+    }
+  } finally {
+    try {
+      if (tmp.existsSync()) await tmp.delete();
+    } catch (_) {}
   }
-  return '（在日志包中未找到 $jobName/$stepName.txt）';
 }
 
 /// 校验 token 并返回用户名。
