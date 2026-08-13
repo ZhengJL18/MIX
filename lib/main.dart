@@ -157,6 +157,9 @@ class _ChatMessage {
   String? clarifyQuestion;
   List<String> clarifyChoices = const [];
   bool clarifyMultiSelect = false;
+  String? clarifyAnswer; // 正确答案（可选，机械判对错用）。
+  String? clarifyPicked; // 用户最终选中的选项（渲染对错色）。
+  bool? clarifyCorrect; // 机械判结果（null=未判）。
   Completer<String>? clarifyCompleter;
   Set<String> clarifySelected = {}; // 多选暂存（内联卡点选状态）。
   // update 专用：内联更新卡（源选择 + 立即更新/稍后，取缔弹窗）。
@@ -285,6 +288,7 @@ class _ChatMessage {
     required String question,
     required List<String> choices,
     required bool multiSelect,
+    String? answer,
     required Completer<String> completer,
   })  : role = 'clarify',
         text = question,
@@ -308,6 +312,7 @@ class _ChatMessage {
     clarifyQuestion = question;
     clarifyChoices = choices;
     clarifyMultiSelect = multiSelect;
+    clarifyAnswer = answer;
     clarifyCompleter = completer;
   }
   _ChatMessage.update({required List<UpdateInfo> sources})
@@ -1315,6 +1320,7 @@ class _ChatScreenState extends State<ChatScreen> {
     String question,
     List<String> choices,
     bool multiSelect,
+    String? answer,
   ) async {
     final completer = Completer<String>();
     setState(() {
@@ -1322,6 +1328,7 @@ class _ChatScreenState extends State<ChatScreen> {
         question: question,
         choices: choices,
         multiSelect: multiSelect,
+        answer: answer,
         completer: completer,
       ));
     });
@@ -1870,11 +1877,50 @@ class _ChatScreenState extends State<ChatScreen> {
     return m?.group(0) ?? s;
   }
 
+  /// 提取选项的字母前缀（"B. xxx" → "B"；"2) xxx" 无字母返回 null）。
+  String? _optionLetter(String opt) {
+    final m = RegExp(r'^\s*([A-Za-z])\s*[.、:：)）]').firstMatch(opt);
+    return m?.group(1)?.toUpperCase();
+  }
+
+  /// 机械判对错：picked 是否命中正确答案 answer（字母优先，退文本包含）。
+  /// 纯字符串匹配，永不误判——这正是判题交给 UI 而非 LLM 的价值。
+  bool _isClarifyCorrect(String picked, String answer) {
+    final a = answer.trim();
+    if (a.isEmpty) return true; // 无正确答案则不判，视为通过。
+    final aLetter = _optionLetter(a) ?? (a.length == 1 ? a.toUpperCase() : null);
+    final pLetter = _optionLetter(picked);
+    if (aLetter != null && pLetter != null && aLetter == pLetter) return true;
+    String strip(String s) => s
+        .replaceFirst(RegExp(r'^\s*[A-Za-z]\s*[.、:：)）]\s*'), '')
+        .trim();
+    final pBody = strip(picked);
+    final aBody = strip(a);
+    if (pBody.isNotEmpty && aBody.isNotEmpty) {
+      if (pBody == aBody || pBody.contains(aBody) || aBody.contains(pBody)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /// 用户点选内联 clarify 卡：complete Future，让 agent 拿到答案继续。
-  void _onClarifySelect(_ChatMessage m, String answer) {
+  /// 带 [m.clarifyAnswer] 且单选时，UI 机械判对错并返回带「回答正确/错误」
+  /// 标记的结果，agent 据此讲解 + 落库（不再自己比较字母）。
+  void _onClarifySelect(_ChatMessage m, String picked) {
     final completer = m.clarifyCompleter;
     if (completer == null || completer.isCompleted) return;
-    completer.complete(answer);
+    final answer = m.clarifyAnswer;
+    String result = picked;
+    if (!m.clarifyMultiSelect && answer != null && answer.trim().isNotEmpty) {
+      final correct = _isClarifyCorrect(picked, answer);
+      m.clarifyPicked = picked;
+      m.clarifyCorrect = correct;
+      result = correct
+          ? '用户选择「$picked」→ 机械判定：回答正确'
+          : '用户选择「$picked」→ 机械判定：回答错误（正确答案「$answer」）';
+    }
+    completer.complete(result);
   }
 
   /// 渲染内联 clarify 选择卡（问题 + 可点选项 / 多选 + 自由输入）。
@@ -1886,6 +1932,28 @@ class _ChatScreenState extends State<ChatScreen> {
 
     Widget optionTile(String c) {
       final isSel = m.clarifySelected.contains(c);
+      // 作答后（有判对错）：正确选项绿、选错的红、其余灰。
+      final hasAnswer =
+          m.clarifyAnswer != null && m.clarifyAnswer!.trim().isNotEmpty;
+      final isCorrectOpt =
+          answered && hasAnswer && _isClarifyCorrect(c, m.clarifyAnswer!);
+      final isWrongPicked =
+          answered && m.clarifyCorrect == false && c == m.clarifyPicked;
+      final Color bg;
+      final Color bd;
+      if (isWrongPicked) {
+        bg = Theme.of(context).colorScheme.error.withValues(alpha: 0.15);
+        bd = Theme.of(context).colorScheme.error;
+      } else if (isCorrectOpt) {
+        bg = Colors.green.withValues(alpha: 0.15);
+        bd = Colors.green;
+      } else if (isSel) {
+        bg = Theme.of(context).colorScheme.primary.withValues(alpha: 0.15);
+        bd = Theme.of(context).colorScheme.primary;
+      } else {
+        bg = Theme.of(context).colorScheme.surfaceContainerHighest;
+        bd = Theme.of(context).dividerColor;
+      }
       return InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: answered
@@ -1909,14 +1977,8 @@ class _ChatScreenState extends State<ChatScreen> {
           margin: const EdgeInsets.symmetric(vertical: 3),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            color: isSel
-                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.15)
-                : Theme.of(context).colorScheme.surfaceContainerHighest,
-            border: Border.all(
-              color: isSel
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(context).dividerColor,
-            ),
+            color: bg,
+            border: Border.all(color: bd),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Row(
@@ -1924,10 +1986,17 @@ class _ChatScreenState extends State<ChatScreen> {
               Expanded(
                 child: Text(c,
                     style: TextStyle(
-                      fontWeight: isSel ? FontWeight.w600 : FontWeight.normal,
+                      fontWeight: (isSel || isCorrectOpt)
+                          ? FontWeight.w600
+                          : FontWeight.normal,
                     )),
               ),
-              if (isSel)
+              if (isWrongPicked)
+                Icon(Icons.close,
+                    size: 18, color: Theme.of(context).colorScheme.error),
+              else if (isCorrectOpt)
+                const Icon(Icons.check_circle, size: 18, color: Colors.green),
+              else if (isSel)
                 Icon(Icons.check,
                     size: 18, color: Theme.of(context).colorScheme.primary),
             ],

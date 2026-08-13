@@ -8,9 +8,13 @@ import 'dart:async';
 
 import 'registry.dart';
 
-/// UI 注册的澄清回调：给定问题与选项，返回用户答案。
-/// 由 ChatScreen 注册（弹出选择对话框）。
-Future<String> Function(String question, List<String> choices, bool multiSelect)?
+/// UI 注册的澄清回调：给定问题、选项与可选正确答案，返回用户答案。
+/// 由 ChatScreen 注册（内联选择卡）。
+///
+/// [answer] 非空时，UI 对用户选择做**机械判对错**（字符串/字母匹配，永不
+/// 出错），返回的字符串里带「回答正确 / 回答错误」标记，agent 据此判题。
+Future<String> Function(
+    String question, List<String> choices, bool multiSelect, String? answer)?
     clarifyHandler;
 
 /// clarify 工具 handler：暂停等待用户输入。
@@ -22,8 +26,9 @@ Future<String> _handleClarify(Map<String, dynamic> args, [Map<String, dynamic>? 
   final question = args['question'] as String? ?? '';
   final choices = (args['choices'] as List?)?.whereType<String>().toList() ?? const [];
   final multi = args['multi_select'] == true;
+  final answer = args['answer'] as String?;
   try {
-    return await handler(question, choices, multi);
+    return await handler(question, choices, multi, answer);
   } catch (e) {
     return toolError('clarify: $e');
   }
@@ -48,6 +53,15 @@ const Map<String, dynamic> _clarifySchema = {
       'multi_select': {
         'type': 'boolean',
         'description': 'Whether multiple choices can be selected',
+      },
+      'answer': {
+        'type': 'string',
+        'description':
+            'Optional correct answer for quiz-style questions. When provided, '
+            'the UI mechanically judges the user\'s selection (exact letter or '
+            'text match — never wrong) and the returned string contains a '
+            '"回答正确" / "回答错误" verdict. Give the option letter (e.g. "B") '
+            'or the full option text. Omit for plain clarifying questions.',
       },
     },
     'required': ['question'],
