@@ -160,20 +160,6 @@ class SettingsScreen extends StatelessWidget {
                 Theme.of(context).colorScheme.secondary,
                 padding: 10,
               ),
-              if (Platform.isLinux || Platform.isWindows)
-                MenuTile(
-                    leading: const Icon(Icons.title),
-                    title: '隐藏标题栏',
-                    subtitle: MenuTile.subtitleText(context,
-                        text: 'Reload app to see changes'),
-                    trailing: Switch(
-                        value: context.watch<SettingsProvider>().hideTitleBar,
-                        onChanged: (value) {
-                          context
-                              .read<SettingsProvider>()
-                              .setTitleBarVisibility(value);
-                        }),
-                    isFirst: true),
               if (Platform.isAndroid)
                 MenuTile(
                     leading: const Icon(Icons.gesture),
@@ -201,8 +187,7 @@ class SettingsScreen extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                         builder: (context) => const CodeblockThemePage())),
-                isFirst:
-                    (Platform.isLinux || Platform.isWindows) ? false : true,
+                isFirst: true,
               ),
               MenuTile(
                 leading: const Icon(Icons.functions),

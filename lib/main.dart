@@ -27,7 +27,6 @@ import 'agent/context_compressor.dart';
 import 'agent/workflow.dart';
 import 'config/mix_config.dart';
 import 'db/session_db.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'llm/openai_llm.dart';
 import 'notes/notes_paths.dart';
 import 'refine/edit_journal.dart';
@@ -35,7 +34,6 @@ import 'refine/prompt_notes_store.dart';
 import 'refine/refine_pipeline.dart';
 import 'refine/trajectory_store.dart';
 import 'screens/settings_screen.dart';
-import 'screens/workspace_screen.dart';
 import 'services/multi_agent.dart';
 import 'services/storage_permission.dart';
 import 'services/study_engine.dart';
@@ -57,7 +55,6 @@ import 'tools/model_tools.dart';
 import 'tools/notes_tools.dart';
 import 'tools/convert_tools.dart';
 import 'tools/read_doc_tool.dart';
-import 'tools/terminal_tool.dart';
 import 'tools/session_search_tool.dart';
 import 'tools/skills_tool.dart';
 import 'tools/study_tools.dart';
@@ -167,7 +164,7 @@ class _ChatMessage {
   int updateSelectedIdx = 0;
   bool updateStarted = false;
   bool updateDismissed = false; // 点「稍后」后隐藏卡片。
-  double? updateProgress; // 0~1 下载进度（Linux/Android 共用）。
+  double? updateProgress; // 0~1 下载进度。
 
   _ChatMessage.user(this.text)
       : role = 'user',
@@ -500,10 +497,6 @@ class _ChatScreenState extends State<ChatScreen> {
     registerNotesTools();
     registerReadDocTool();
     registerConvertTools();
-    // Linux 桌面：agent 获得终端能力（curl/pdftotext/任意命令）。
-    if (Platform.isLinux) {
-      registerTerminalTool();
-    }
     studyListHandler = _studyList;
     studyQuestionHandler = _studyQuestion;
     studyProfileUpdateHandler = _studyProfileUpdate;
@@ -563,31 +556,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  /// 当前工作区路径（给 system prompt 用）；无工作区返回 null。
-  String? _workspaceForPrompt() {
-    try {
-      return currentFileToolsCwd();
-    } catch (_) {}
-    return null;
-  }
-
-  /// 应用新工作区：切 file_tools cwd + git cwd，空路径恢复默认。
-  Future<void> _applyWorkspace(String path) async {
-    if (path.isEmpty) {
-      try {
-        final dir = (await getApplicationDocumentsDirectory()).path;
-        configureFileTools(cwd: dir, allowExternal: true);
-        rememberFileToolsCwd(dir);
-      } catch (_) {
-        configureFileTools(cwd: null);
-      }
-      return;
-    }
-    configureFileTools(cwd: path, allowExternal: true);
-    rememberFileToolsCwd(path);
-    setGitCwd(path);
-  }
-
   /// 更新内联卡：有新版时插入一条 update 消息（源选择 + 立即更新/稍后）。
   /// 取缔弹窗——用户能边看上下文边决定，源选择明确展示（镜像/GitHub）。
   void _showUpdateDialog(List<UpdateInfo> sources) {
@@ -610,29 +578,6 @@ class _ChatScreenState extends State<ChatScreen> {
       msg.updateStarted = true;
       msg.updateProgress = 0;
     });
-
-    // Linux：下载 .deb 到 ~/Downloads，提示用户手动安装。
-    if (Platform.isLinux) {
-      final path = await UpdateService.downloadLinuxDeb(
-        info.downloadUrl,
-        onProgress: (p) {
-          if (mounted) setState(() => msg.updateProgress = p);
-        },
-      );
-      if (!mounted) return;
-      setState(() => msg.updateProgress = null);
-      if (path != null) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('已下载到 $path\n手动安装：sudo dpkg -i "$path"'),
-          duration: const Duration(seconds: 8),
-        ));
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('下载失败，请稍后重试')),
-        );
-      }
-      return;
-    }
 
     // Android：AppInstallerPlus（自带 FileProvider + 授权引导）。
     final ok = await UpdateService.downloadAndInstall(
@@ -1358,15 +1303,9 @@ class _ChatScreenState extends State<ChatScreen> {
 
   /// 按工作流构建系统提示（人设 + 委派/计划策略 + 工程检索 + 技能 + 外部权限）。
   String _buildWorkflowPrompt({String contextBlock = ''}) {
-    // 注入工作区路径（coding prompt 的 {workspace} 占位符）。
-    String? workspace;
-    try {
-      workspace = _workspaceForPrompt();
-    } catch (_) {}
     var prompt = _currentWorkflow.buildSystemPrompt(
       contextBlock: contextBlock,
       skillBlock: buildSkillsSystemPrompt(),
-      workspace: workspace ?? '',
     );
     // 公司模式：追加部门列表，让 CEO 知道有哪些团队可用。
     if (_currentWorkflow.id == 'company') {
@@ -1399,19 +1338,7 @@ class _ChatScreenState extends State<ChatScreen> {
       configureFileTools(cwd: null);
       return;
     }
-    // 若用户设置了工作区（Linux 桌面），切到该目录作为 agent 的 cwd。
-    String? workspace;
-    try {
-      workspace = await loadWorkspacePath();
-      if (workspace != null && workspace.isNotEmpty) {
-        rememberFileToolsCwd(workspace);
-        configureFileTools(cwd: workspace, allowExternal: true);
-      } else {
-        rememberFileToolsCwd(dir);
-      }
-    } catch (_) {
-      rememberFileToolsCwd(dir);
-    }
+    rememberFileToolsCwd(dir);
     try {
       // 按「所有文件访问」权限设置 file_tools：cwd = documents + 外部访问开关。
       await syncExternalAccessPermission(fallbackCwd: dir);
@@ -1427,11 +1354,6 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {}
     // 会话库。
     try {
-      // Linux 桌面：sqflite 无实现，改用 sqflite_common_ffi（本地 sqlite）。
-      if (Platform.isLinux) {
-        sqfliteFfiInit();
-        sessionDbFactory = databaseFactoryFfi;
-      }
       _sessionDb = SessionDB(dbPath: '$dir/state.db');
       await _sessionDb!.init();
       sessionDb = _sessionDb;
@@ -1676,21 +1598,13 @@ class _ChatScreenState extends State<ChatScreen> {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const printnotes.MainPage()),
                   );
-                case 'workspace':
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => WorkspaceScreen(
-                        onWorkspaceSelected: _applyWorkspace,
-                      ),
-                    ),
-                  );
                 case 'settings':
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => SettingsScreen()),
                   );
               }
             },
-            // 精简菜单：新建 + 模式（模式/计划/强度合并）+ 笔记 + 设置。工作区仅 Linux。
+            // 精简菜单：新建 + 模式（模式/计划/强度合并）+ 笔记 + 设置。
             itemBuilder: (_) => [
               PopupMenuItem(
                 value: 'new_session',
@@ -1727,17 +1641,6 @@ class _ChatScreenState extends State<ChatScreen> {
                   ],
                 ),
               ),
-              if (Platform.isLinux)
-                PopupMenuItem(
-                  value: 'workspace',
-                  child: Row(
-                    children: [
-                      Icon(Icons.folder_open, size: 18, color: context.appPalette.textSecondary),
-                      SizedBox(width: 8),
-                      Text('工作区'),
-                    ],
-                  ),
-                ),
               PopupMenuItem(
                 value: 'settings',
                 child: Row(
@@ -2159,7 +2062,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 FilledButton(
                   onPressed: () =>
                       _downloadAndInstall(sources[m.updateSelectedIdx]),
-                  child: Text(Platform.isLinux ? '下载 .deb' : '立即更新'),
+                  child: const Text('立即更新'),
                 ),
               ],
             ),

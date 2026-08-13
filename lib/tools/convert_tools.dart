@@ -209,9 +209,6 @@ Future<String> _handleMdToPdf(Map<String, dynamic> args,
     final mdText = _readSource(source, content);
     final outPath = await _resolveOutput(
         args['output'] as String?, source, '.pdf');
-    if (Platform.isLinux) {
-      return toolError('md_to_pdf: Linux 桌面版暂无 WebView，无法生成 PDF。可转 docx。');
-    }
     await _mdToPdf(mdText, outPath);
     final size = File(outPath).lengthSync();
     return toolResult({

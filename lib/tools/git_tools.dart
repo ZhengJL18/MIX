@@ -519,7 +519,7 @@ String gitPush({
 /// git pull：从 origin 拉取，但**不做硬 reset**（避免丢本地未 push 提交）。
 ///
 /// libgit2 绑定无 merge 能力，这里 fetch 后报告本地与 origin 的领先/落后；
-/// 需要真正合并时（Linux）用 run_terminal 跑 `git merge` / `git pull --rebase`。
+/// 需要真正合并时用系统 git 命令执行 `git merge` / `git pull --rebase`。
 String gitPull({
   required String path,
   String? token,
@@ -552,8 +552,8 @@ String gitPull({
       return '已 fetch origin（首次，本地尚无对应分支）。可 push 到 origin。';
     }
     return '已 fetch origin/$shortName（本地与远程不同步）。\n'
-        '未自动合并（避免硬 reset 丢提交）。如需合并，Linux 上用 '
-        'run_terminal 执行：git merge origin/$shortName 或 git pull --rebase';
+        '未自动合并（避免硬 reset 丢提交）。如需合并，请用系统 git 命令'
+        '执行：git merge origin/$shortName 或 git pull --rebase';
   } catch (e) {
     return toolError('git pull failed: $e');
   }

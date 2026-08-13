@@ -7,7 +7,8 @@
 **MIX**：在 Flutter 隔离墙（Android App 沙盒）内实现 agent 级能力的纯 Dart 框架。
 
 - **复刻策略**：以开源 [Hermes Agent](https://github.com/NousResearch/hermes-agent)（master）为唯一行为规范，用 Dart 逐文件重写其核心闭环，**不自创工具系统**。
-- **目标形态**：Android App（可运行在手机沙盒内做 agent），同时带 Linux 桌面支持。
+- **目标形态**：Android App（可运行在手机沙盒内做 agent）。
+- **平台状态（2026-08）**：Linux 桌面版已停止维护。含 Linux 支持的完整源码保存在 `linux-desktop` 分支；master 已移除全部 Linux 相关代码（`linux/` 目录、run_terminal 工具、桌面工作区、deb 更新、CI linux job 等），只构建 Android。
 - **核心技术栈**：Flutter / Dart，纯 Dart 实现（无原生 agent 依赖），SQLite 存会话，libgit2（git2dart）做 git。
 
 ## 2. 当前进度
@@ -69,7 +70,7 @@ docs/            # 文档（HERMES_MAPPING.md 等）
 
 2. **大体积运行时资源按需下载**：`mermaid.min.js`、`pyodide core` 等不进 APK，由 `RemoteAssetManager` 从仓库 raw 地址拉取并缓存到私有目录，保证安装包最小。仅 **KaTeX**（约 600KB）打包进 APK，用于 `md_to_pdf` 完全离线渲染（WebView 本地加载，不依赖 CDN）。
 
-3. **Linux 桌面端**：sqflite 无 Linux 实现，改用 `sqflite_common_ffi`（本地 sqlite）。`file_selector` 用于桌面工作区目录选择，仅 Linux 触发，Android 不启用。
+3. **sqflite_common_ffi 在 dev_dependencies**：sqflite 在测试主机（非 Android）无实现，`test/session_db_test.dart` 靠它提供本地数据库工厂；它是**测试依赖**，不属于 App 运行时依赖。
 
 4. **Android 11+ 首次使用**：需在设置页授予「所有文件访问」权限（`MANAGE_EXTERNAL_STORAGE`），否则 agent 无法读写公共目录。
 
@@ -78,8 +79,6 @@ docs/            # 文档（HERMES_MAPPING.md 等）
 ```bash
 flutter pub get
 flutter build apk --release     # Android
-# 桌面端（Linux）：
-flutter run -d linux
 ```
 
 - Flutter SDK 要求：`^3.12.2`（见 `pubspec.yaml`）。

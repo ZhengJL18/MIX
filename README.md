@@ -4,7 +4,9 @@
 
 **复刻策略**：以开源 [Hermes Agent](https://github.com/NousResearch/hermes-agent)（main，锚定 commit `0a62610f10cc34d696b2239b2c69fa1ba0f1ca63`）为唯一行为规范，用 Dart 逐文件重写其核心闭环，**不自创工具系统**。复刻清单见 `docs/HERMES_MAPPING.md`。
 
-**平台**：Android（主）+ Linux 桌面（agent 额外获得终端能力）。
+**平台**：Android（主）。
+
+> 平台状态（2026-08）：Linux 桌面版已停止维护。含 Linux 支持的完整源码保存在 `linux-desktop` 分支；master 已移除全部 Linux 相关代码（`linux/` 目录、run_terminal 工具、桌面工作区、deb 更新、CI linux job 等），只构建 Android。
 
 > ⚠️ **维护约定（重要）**：功能有**重大更新**时（新增子系统 / 工具集 / 外部服务、架构调整、依赖大版本升级），本文档必须同步更新，并同步更新 `docs/HANDOFF.md` 的进度与踩坑记录。小事（bug 修复、文案）可不改。
 
@@ -31,7 +33,7 @@
 - **git**：基于 git2dart（嵌入式 libgit2），clone / init / status / add / commit / log / branch / diff / push / pull + `github_ci_logs`，认证自动读配置里的 GitHub PAT
 - **学习**：`study_list` / `study_question` / `study_record` / `study_profile_update`
 - **笔记库**：`notes_list` / `notes_search` / `notes_read` / `notes_write`（写后聊天侧出「打开笔记」深链）
-- **其他**：`vision_analyze`（独立视觉模型配置）、`read_doc`（格式探测 + 纯 Dart 解包 + 云端 /extract）、`md_to_docx` / `md_to_pdf` / `cloud_extract`、`cron_create/list/delete`（App 存活时触发）、`run_terminal`（仅 Linux）、用户脚本（知乎去登录 / 通用复制解锁 / 小红书）
+- **其他**：`vision_analyze`（独立视觉模型配置）、`read_doc`（格式探测 + 纯 Dart 解包 + 云端 /extract）、`md_to_docx` / `md_to_pdf` / `cloud_extract`、`cron_create/list/delete`（App 存活时触发）、用户脚本（知乎去登录 / 通用复制解锁 / 小红书）
 
 ### 学习模式（核心特色：聊天即学习主场）
 - `StudyEngine`：SQLite 事实层（subjects / knowledge_points / questions / practice_records），**掌握度 = 近 15 题正确率的 SQL 现场聚合**，零公式零 LLM
@@ -61,7 +63,7 @@ coding（先计划后执行，plan 模式）/ research / daily / company（CEO +
 ### 配置与服务
 - 多供应商 LLM（DeepSeek / 通义 / OpenAI / Kimi / 智谱 / Gemini / OpenRouter / Anthropic），`/models` 动态拉模型列表
 - 云端保险柜：注册 / 登录后 AES-256-CBC + PBKDF2 加密备份上传下载（服务器只存密文）
-- 自动更新：国内镜像优先 + GitHub Releases 兜底；Android 应用内安装，Linux 下载 .deb
+- 自动更新：国内镜像优先 + GitHub Releases 兜底；Android 应用内安装（app_installer_plus）
 - 「所有文件访问」权限引导（原生 `ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION` 专用页）
 - 5 套内置主题（青绿/靛蓝/暖橙/紫罗兰/玫瑰）+ 明暗切换
 
@@ -97,7 +99,7 @@ test/               # 27 个测试文件
    - `third_party/file_picker`：11.0.3 在 AGP 9 + Flutter Built-in Kotlin 下条件跳过 KGP，导致 `FilePickerPlugin.kt` 未编译，本地副本修 build.gradle 始终应用 Kotlin。
    - **升级这两个依赖前，务必确认上游已兼容 AGP 9，否则回退到编译失败。**
 2. **大体积运行时资源按需下载**：mermaid.min.js 等不进 APK，由 `RemoteAssetManager` 从仓库 raw 拉取缓存到私有目录；仅 KaTeX（约 600KB）打包进 APK（md_to_pdf 完全离线渲染）。
-3. **Linux 桌面端**：sqflite 无 Linux 实现，改用 `sqflite_common_ffi`；`file_selector` 仅 Linux 触发（工作区目录选择）。
+3. **sqflite_common_ffi 在 dev_dependencies**：sqflite 在测试主机（非 Android）无实现，`test/session_db_test.dart` 靠它提供本地数据库工厂；它是**测试依赖**，不属于 App 运行时依赖。
 4. **Android 11+ 首次使用**：需在设置页授予「所有文件访问」权限（`MANAGE_EXTERNAL_STORAGE`），否则 agent 无法读写公共目录。权限检测/引导走原生通道（`MainActivity.kt` MethodChannel `com.mix.app/storage`），鸿蒙上比 permission_handler 可靠。
 5. **笔记库根固定为 `documents/notes`**：printnotes UI 与 agent `notes_*` 工具共用，**不可改任意目录**，否则 UI 与 agent 分叉。
 6. **消息配对严格性**：OpenAI 兼容后端要求 assistant 声明 tool_calls 后紧跟连续的 tool 结果，中间不能插 user 消息——所有路径（历史恢复 / 压缩 / 中断 / 防死循环警告）都要保证这一点，这是大量 400 错误的根源。
@@ -113,7 +115,6 @@ test/               # 27 个测试文件
 ```bash
 flutter pub get
 flutter build apk --release     # Android
-flutter run -d linux            # 桌面端（Linux）
 ```
 
 - Flutter SDK 要求：`^3.12.2`（见 `pubspec.yaml`）。

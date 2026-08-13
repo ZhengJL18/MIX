@@ -31,18 +31,16 @@ class ImageViewScreen extends StatelessWidget {
             PopupMenuButton(
               onSelected: (value) {},
               itemBuilder: (context) => <PopupMenuEntry>[
-                if (!Platform
-                    .isLinux) // Currently, files not supported by SharePlus
-                  PopupMenuItem(
-                    child: ListTile(
-                      leading: const Icon(Icons.share),
-                      title: Text('分享'),
-                      onTap: () {
-                        SharePlus.instance.share(
-                            ShareParams(files: [XFile(imageUri.toFilePath())]));
-                      },
-                    ),
+                PopupMenuItem(
+                  child: ListTile(
+                    leading: const Icon(Icons.share),
+                    title: Text('分享'),
+                    onTap: () {
+                      SharePlus.instance.share(
+                          ShareParams(files: [XFile(imageUri.toFilePath())]));
+                    },
                   ),
+                ),
                 PopupMenuItem(
                   child: ListTile(
                     leading: const Icon(Icons.folder_open),

@@ -46,8 +46,6 @@ dependencies:
   flutter_inappwebview: ^6.1.5
   archive: ^4.0.5
   git2dart: ^0.5.4
-  # 桌面端工作区目录选择（仅 Linux 使用；Android 不触发）。
-  file_selector: ^1.0.3
   git2dart_binaries: ^1.12.1
   pointycastle: ^4.0.0
   package_info_plus: ^8.3.0
@@ -75,12 +73,14 @@ dependencies:
   flutter_staggered_grid_view: ^0.7.0
   animated_tree_view: ^2.3.0
   introduction_screen: ^4.0.0
-  # Linux 桌面用：sqflite 无 Linux 实现，改用 sqflite_common_ffi（本地 sqlite）。
-  sqflite_common_ffi: ^2.4.2
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+  # 测试在主机（CI/桌面）上跑 SQLite 用：sqflite 无桌面实现，
+  # session_db_test 通过它提供本地数据库工厂。仅测试需要，不属于 App 依赖。
+  sqflite_common_ffi: ^2.4.2
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

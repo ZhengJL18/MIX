@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:app_installer_plus/app_installer_plus.dart';
 import 'package:flutter/foundation.dart' show debugPrint;
@@ -76,11 +75,7 @@ class UpdateService {
       final data =
           jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       final remoteBuild = data['build'] as int? ?? 0;
-      // 平台感知抓取：Android 抓 apk_url，Linux 抓 deb_url。
-      // 镜像同步脚本需同时同步 apk 与 deb；某平台资产缺失时该平台回退 GitHub。
-      final downloadUrl = Platform.isLinux
-          ? (data['deb_url'] as String? ?? '')
-          : (data['apk_url'] as String? ?? '');
+      final downloadUrl = data['apk_url'] as String? ?? '';
       debugPrint('[Update] mirror build=$remoteBuild url=$downloadUrl');
       if (remoteBuild <= 0 || downloadUrl.isEmpty) return null;
 
@@ -122,12 +117,11 @@ class UpdateService {
       debugPrint('[Update] tag=$tagName assets=${assets.length}');
       if (tagName.isEmpty || assets.isEmpty) return null;
 
-      // 下载直链：Android 抓 .apk，Linux 抓 .deb（平台感知）。
+      // 下载直链：GitHub Release assets 里取 .apk。
       String? downloadUrl;
       for (final a in assets) {
         final name = a['name'] as String? ?? '';
-        final wanted = Platform.isLinux ? name.endsWith('.deb') : name.endsWith('.apk');
-        if (wanted) {
+        if (name.endsWith('.apk')) {
           downloadUrl = a['browser_download_url'] as String?;
           break;
         }
@@ -166,11 +160,6 @@ class UpdateService {
     String downloadUrl, {
     void Function(double progress)? onProgress,
   }) async {
-    // Linux 桌面：下载 .deb 到 ~/Downloads，交给用户手动 dpkg 安装。
-    if (Platform.isLinux) {
-      final path = await downloadLinuxDeb(downloadUrl, onProgress: onProgress);
-      return path != null;
-    }
     // 固定唯一文件名 + 每次下载前清理同名残留。否则「缓存」的旧/半成品
     // APK 会一直占着路径，安装器可能读到坏文件 —— 表现为"一直装不上"。
     const fileName = 'MIX-update';
@@ -197,45 +186,6 @@ class UpdateService {
       return true;
     } catch (e) {
       return false;
-    }
-  }
-
-  /// Linux：流式下载 .deb 到 ~/Downloads（内存友好），返回保存路径（失败 null）。
-  static Future<String?> downloadLinuxDeb(
-    String downloadUrl, {
-    void Function(double progress)? onProgress,
-  }) async {
-    try {
-      final home = Platform.environment['HOME'];
-      if (home == null || home.isEmpty) return null;
-      final dir = Directory('$home/Downloads');
-      if (!dir.existsSync()) dir.createSync(recursive: true);
-      final dest = File('${dir.path}/MIX-update.deb');
-
-      final client = http.Client();
-      final resp = await client
-          .send(http.Request('GET', Uri.parse(downloadUrl)))
-          .timeout(const Duration(seconds: 30));
-      if (resp.statusCode != 200) {
-        client.close();
-        return null;
-      }
-
-      final total = resp.contentLength ?? 0;
-      var received = 0;
-      final sink = dest.openWrite();
-      await for (final chunk in resp.stream) {
-        received += chunk.length;
-        sink.add(chunk);
-        if (total > 0 && onProgress != null) onProgress(received / total);
-      }
-      await sink.flush();
-      await sink.close();
-      client.close();
-      return dest.path;
-    } catch (e) {
-      debugPrint('[Update] Linux deb 下载失败: $e');
-      return null;
     }
   }
 }

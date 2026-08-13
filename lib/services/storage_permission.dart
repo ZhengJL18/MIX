@@ -25,10 +25,6 @@ const MethodChannel _storageChannel =
 /// permission_handler 可靠）；原生通道不可用（非 Android / 异常）时
 /// fallback 到 permission_handler。
 Future<bool> isExternalStorageGranted() async {
-  // 桌面端（Linux/Windows/macOS）无沙箱：文件系统直接可访问，无需权限。
-  if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
-    return true;
-  }
   try {
     final granted = await _storageChannel.invokeMethod<bool>(
       'isExternalStorageManager',

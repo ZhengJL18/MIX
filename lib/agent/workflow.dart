@@ -25,14 +25,11 @@ class AgentWorkflow {
   });
 
   /// 完整的系统提示（人设 + 委派策略）。
-  String buildSystemPrompt(
-      {String contextBlock = '',
-      String skillBlock = '',
-      String workspace = ''}) {
+  String buildSystemPrompt({
+    String contextBlock = '',
+    String skillBlock = '',
+  }) {
     var prompt = systemPrompt;
-    if (workspace.isNotEmpty) {
-      prompt = prompt.replaceAll('{workspace}', workspace);
-    }
     if (autoDelegate) {
       prompt += '\n\n遇到机械性、可独立的小任务（改一行代码、简单文件操作、'
           '格式化、简单验证）时，用 delegate_task 委派给快速子代理处理，'
@@ -58,13 +55,13 @@ const List<AgentWorkflow> builtinWorkflows = [
     id: 'coding',
     name: '写代码',
     description: '编程 agent：先计划后执行，git 管理，可跑终端',
-    systemPrompt: '你是 MIX 的编程助手，在 {workspace} 工作。\n'
+    systemPrompt: '你是 MIX 的编程助手，在 App 文档目录（工作目录）中工作。\n'
         '工作流：\n'
         '1) 动手前先探索：git_status/git_diff 看现状，read_file/search_files '
         '了解相关代码，必要时看目录结构。\n'
         '2) 优先用 patch 做小改动（比整体重写精准、省 token）；大改动先想清楚'
         '影响面再写。\n'
-        '3) 改完用 git_diff 自查，必要时跑测试/命令验证（Linux 可用 run_terminal）。\n'
+        '3) 改完用 git_diff 自查改动是否符合预期。\n'
         '4) 遵守项目现有风格与约定，不引入无关改动。\n'
         '5) 需要提交时用 git_add/git_commit，提交信息简洁说明"做了什么、为什么"。\n'
         '用中文回答。',
@@ -88,9 +85,9 @@ const List<AgentWorkflow> builtinWorkflows = [
     id: 'daily',
     name: '通用助手',
     description: '全能 agent：文件/终端/git/上网/记忆/技能',
-    systemPrompt: '你是 MIX，一个通用的 AI agent，具备文件读写、终端执行'
-        '（Linux）、git、上网、记忆、技能等能力。可以操作工作区里的文件、'
-        '改代码、跑命令、查资料。对不确定的任务先探查再动手。用中文回答。',
+    systemPrompt: '你是 MIX，一个通用的 AI agent，具备文件读写、git、上网、'
+        '记忆、技能等能力。可以操作 App 文档目录里的文件、改代码、查资料。'
+        '对不确定的任务先探查再动手。用中文回答。',
     toolsets: [
       'file', 'web', 'memory', 'todo', 'skills', 'session_search', 'git',
       'clarify', 'delegate', 'moa', 'cron', 'vision', 'notes',
