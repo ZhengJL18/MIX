@@ -323,7 +323,9 @@ String? _tryHeadBranchName(Repository repo) {
 }
 
 /// 列出工作区里未被 index 跟踪的新文件（untracked）。
-/// 遍历仓库工作树（跳过 .git），对比 index 中的路径。
+/// 手动栈遍历：先列顶层跳过 .git，再递归子目录，最多收集 50 个就停。
+/// （`listSync(recursive)` 会把 .git 下几百个对象文件也全量列出来，
+/// 4GB 设备上白白多建大量 FileSystemEntity。）
 List<String> _untrackedFiles(Repository repo) {
   final root = repo.path; // 通常是 <repo>/.git/
   final workdir = root.endsWith('/.git/')
@@ -332,18 +334,26 @@ List<String> _untrackedFiles(Repository repo) {
   final indexed = <String>{for (final e in repo.index) e.path};
   final untracked = <String>[];
   try {
-    final walker = Directory(workdir).listSync(recursive: true, followLinks: false);
-    for (final entry in walker) {
-      if (entry is! File) continue;
-      final rel = entry.path.substring(workdir.length + 1).replaceAll('\\', '/');
-      if (rel.startsWith('.git/') || rel == '.git') continue;
-      if (!indexed.contains(rel)) {
-        untracked.add(rel);
+    final stack = <String>[workdir];
+    while (stack.isNotEmpty && untracked.length < 50) {
+      final dir = stack.removeLast();
+      final entries = Directory(dir).listSync(followLinks: false);
+      for (final entry in entries) {
+        if (untracked.length >= 50) break;
+        final rel =
+            entry.path.substring(workdir.length + 1).replaceAll('\\', '/');
+        if (entry is Directory) {
+          if (rel == '.git' || rel.startsWith('.git/')) continue;
+          stack.add(entry.path);
+        } else if (entry is File) {
+          if (!indexed.contains(rel)) {
+            untracked.add(rel);
+          }
+        }
       }
     }
   } catch (_) {}
-  // 限制数量，避免超长输出。
-  return untracked.length > 50 ? untracked.sublist(0, 50) : untracked;
+  return untracked;
 }
 
 Signature _makeSignature(Repository repo, String? name, String? email) {
@@ -394,17 +404,36 @@ List<dynamic> _statusEntries(Repository repo) {
 }
 
 /// git diff：工作区未暂存改动（indexToWorkdir）的 unified diff。
+///
+/// 内存保护：先遍历 `diff.deltas`（只有 stat 信息，不读文件内容），
+/// 单侧超过 1MB 的文件**不生成 patch 文本**（避免 libgit2 把大文件
+/// 整读进内存算 diff），只报文件名。
 String gitDiff({required String path, String? target}) {
   try {
     final repo = Repository.open(path);
     final diff = Diff.indexToWorkdir(repo: repo, index: repo.index);
-    final patches = diff.patches;
-    if (patches.isEmpty) {
+    final deltas = diff.deltas;
+    if (deltas.isEmpty) {
       return 'No unstaged changes.';
     }
+    const maxDiffFileBytes = 1 << 20; // 1MB
     final parts = <String>[];
-    for (final p in patches) {
-      parts.add(p.text);
+    for (var i = 0; i < deltas.length; i++) {
+      final d = deltas[i];
+      final newFile = d.newFile;
+      final oldFile = d.oldFile;
+      final filePath =
+          newFile.path.isNotEmpty ? newFile.path : oldFile.path;
+      final maxSize =
+          newFile.size > oldFile.size ? newFile.size : oldFile.size;
+      if (maxSize > maxDiffFileBytes) {
+        parts.add('(跳过 diff 内容: $filePath 约 ${maxSize ~/ 1024}KB '
+            '> 1MB 上限，仅列出文件名)');
+        continue;
+      }
+      // 只对安全的小文件生成 patch（Patch.fromDiff 按索引单个生成，
+      // 大文件的 delta 完全不触发内容读取）。
+      parts.add(Patch.fromDiff(diff: diff, index: i).text);
     }
     return parts.join('\n');
   } catch (e) {
@@ -412,7 +441,14 @@ String gitDiff({required String path, String? target}) {
   }
 }
 
-/// git clone：克隆远程仓库到本地。
+/// git clone：克隆远程仓库到本地（内存友好版）。
+///
+/// 不用 `Repository.clone`（它全量拉取所有分支 + 全部 tag + 完整历史，
+/// 4GB 设备上易 OOM）。改为：
+///   1. init 空仓库
+///   2. 配 origin，fetch refspec 限定**单分支 master**
+///   3. fetch（只下载 master 历史对象，不拉 136 个 tag 与其他分支的 refs）
+///   4. 建本地 master + checkout 工作树
 ///
 /// [token] 提供时用 HTTPS + PAT（UserPass username 用 'x-access-token'）。
 /// 不支持认证时（无 token）尝试匿名 clone（公开仓库）。
@@ -423,14 +459,33 @@ String gitClone({
 }) {
   try {
     final callbacks = (token != null && token.isNotEmpty)
-        ? Callbacks(credentials: UserPass(username: 'x-access-token', password: token))
+        ? Callbacks(
+            credentials:
+                UserPass(username: 'x-access-token', password: token))
         : const Callbacks();
-    Repository.clone(
+    // 1. 空仓库（比 Repository.clone 轻，且可控 fetch 范围）。
+    final repo = Repository.initBasic(path: localPath, bare: false);
+    // 2. origin 默认 fetch refspec 只跟 master 单分支。
+    Remote.create(
+      repo: repo,
+      name: 'origin',
       url: url,
-      localPath: localPath,
+      fetch: '+refs/heads/master:refs/remotes/origin/master',
+    );
+    // 3. 显式单分支 fetch（不拉 tags / 其他分支的 refs）。
+    final remote = Remote.lookup(repo: repo, name: 'origin');
+    remote.fetch(
+      refspecs: const ['+refs/heads/master:refs/remotes/origin/master'],
       callbacks: callbacks,
     );
-    return 'Cloned $url → $localPath';
+    // 4. 本地 master → 远程 master，checkout 工作树。
+    final remoteHead =
+        Branch.lookup(repo: repo, name: 'origin/master', type: GitBranch.remote);
+    final headCommit = Commit.lookup(repo: repo, oid: remoteHead.target);
+    Branch.create(repo: repo, name: 'master', target: headCommit);
+    repo.setHead('refs/heads/master');
+    repo.reset(oid: remoteHead.target, resetType: GitReset.hard);
+    return 'Cloned $url → $localPath（单分支 master，未拉 tags）';
   } catch (e) {
     return toolError('git clone failed: $e');
   }
@@ -474,8 +529,10 @@ String gitPull({
         : null;
     final callbacks = Callbacks(credentials: creds);
     final remote = Remote.lookup(repo: repo, name: 'origin');
+    // 只 fetch master 单分支（空 refspec 会按 origin 配置拉全部分支 + tag，
+    // 4GB 设备上对象解压易 OOM）。
     remote.fetch(
-      refspecs: const [],
+      refspecs: const ['+refs/heads/master:refs/remotes/origin/master'],
       callbacks: callbacks,
     );
     final headName = repo.head.name;
