@@ -152,6 +152,19 @@ class _ChatMessage {
   final String? studyAnswer; // 正确答案（机械判用）。
   final String? studyExplanation;
   final bool? studyCorrect; // 机械判结果。
+  // clarify 专用：内联选择卡（取缔弹窗，AI 向用户确认/提问时用）。
+  // 非 final：只有 clarify 消息会赋值，其余消息保持默认（避免污染 6 个构造函数）。
+  String? clarifyQuestion;
+  List<String> clarifyChoices = const [];
+  bool clarifyMultiSelect = false;
+  Completer<String>? clarifyCompleter;
+  Set<String> clarifySelected = {}; // 多选暂存（内联卡点选状态）。
+  // update 专用：内联更新卡（源选择 + 立即更新/稍后，取缔弹窗）。
+  List<UpdateInfo> updateSources = const [];
+  int updateSelectedIdx = 0;
+  bool updateStarted = false;
+  bool updateDismissed = false; // 点「稍后」后隐藏卡片。
+  double? updateProgress; // 0~1 下载进度（Linux/Android 共用）。
 
   _ChatMessage.user(this.text)
       : role = 'user',
@@ -268,6 +281,60 @@ class _ChatMessage {
         studyAnswer = null,
         studyExplanation = null,
         studyCorrect = null;
+  _ChatMessage.clarify({
+    required String question,
+    required List<String> choices,
+    required bool multiSelect,
+    required Completer<String> completer,
+  })  : role = 'clarify',
+        text = question,
+        toolName = null,
+        toolStatus = null,
+        discussionRunning = false,
+        discussionRound = null,
+        discussionTotalRounds = null,
+        discussionPerspective = null,
+        discussionPerspectives = const [],
+        discussionSummary = null,
+        refineProposals = const [],
+        refineApplied = false,
+        refineIgnored = false,
+        studyQuestionId = null,
+        studyQuestion = null,
+        studyOptions = const [],
+        studyAnswer = null,
+        studyExplanation = null,
+        studyCorrect = null {
+    clarifyQuestion = question;
+    clarifyChoices = choices;
+    clarifyMultiSelect = multiSelect;
+    clarifyCompleter = completer;
+  }
+  _ChatMessage.update({required List<UpdateInfo> sources})
+      : role = 'update',
+        text = '',
+        toolName = null,
+        toolStatus = null,
+        discussionRunning = false,
+        discussionRound = null,
+        discussionTotalRounds = null,
+        discussionPerspective = null,
+        discussionPerspectives = const [],
+        discussionSummary = null,
+        refineProposals = const [],
+        refineApplied = false,
+        refineIgnored = false,
+        studyQuestionId = null,
+        studyQuestion = null,
+        studyOptions = const [],
+        studyAnswer = null,
+        studyExplanation = null,
+        studyCorrect = null {
+    updateSources = sources;
+    // 默认优先国内镜像（同版本时），没有镜像才默认第一个。
+    final mirrorIdx = sources.indexWhere((s) => s.source == '国内镜像');
+    updateSelectedIdx = mirrorIdx >= 0 ? mirrorIdx : 0;
+  }
 }
 
 class ChatScreen extends StatefulWidget {
@@ -331,6 +398,7 @@ class _ChatScreenState extends State<ChatScreen> {
   StudyEngine? _studyEngine;
   StudyQuestionService? _studyQuestionService;
   final Map<String, String> _studyChoices = {}; // 题 key → 用户选项（key 兼容无 question_id 的题）。
+  final TextEditingController _clarifyInput = TextEditingController(); // 内联 clarify 自由输入。
   // 思考强度：聊天回答流程用滑块值(0-100)，各内部流程在设置里独立配置。
   int _chatEffort = 50;
 
@@ -369,6 +437,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _scrollController.removeListener(_onChatScroll);
     _scrollController.dispose();
     _controller.dispose();
+    _clarifyInput.dispose();
     super.dispose();
   }
 
@@ -513,99 +582,61 @@ class _ChatScreenState extends State<ChatScreen> {
     setGitCwd(path);
   }
 
-  /// 更新对话框。多个源可用时让用户选下载源（国内镜像免 VPN / GitHub）。
+  /// 更新内联卡：有新版时插入一条 update 消息（源选择 + 立即更新/稍后）。
+  /// 取缔弹窗——用户能边看上下文边决定，源选择明确展示（镜像/GitHub）。
   void _showUpdateDialog(List<UpdateInfo> sources) {
-    // 选 build 最高的源作默认（镜像可能与 GitHub 版本不同步）。
-    final sorted = [...sources]..sort((a, b) => b.buildNumber.compareTo(a.buildNumber));
-    final latest = sorted.first;
-    // 默认优先国内镜像（同版本时），没有镜像才默认 GitHub。
-    final defaultInfo = sorted.firstWhere((s) => s.source == '国内镜像',
-        orElse: () => sorted.first);
-    var selected = defaultInfo;
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: Text('发现新版本 v${latest.version}'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(latest.notes?.trim().isNotEmpty == true
-                    ? latest.notes!
-                    : '有新版本可用，是否立即更新？'),
-                if (sources.length > 1) ...[
-                  const SizedBox(height: 12),
-                  for (final s in sorted)
-                    ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(
-                        selected == s
-                            ? Icons.check_circle
-                            : Icons.radio_button_unchecked,
-                        color: selected == s
-                            ? context.appPalette.primary
-                            : context.appPalette.textSecondary,
-                      ),
-                      title: Text(s.source),
-                      subtitle: Text(
-                          s.source == '国内镜像' ? '快，免科学上网' : '官方源，可能需科学上网',
-                          style: const TextStyle(fontSize: 12)),
-                      onTap: () => setDialogState(() => selected = s),
-                    ),
-                ],
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('稍后'),
-            ),
-            FilledButton(
-              onPressed: () {
-                Navigator.of(ctx).pop();
-                _downloadAndInstall(selected);
-              },
-              child: const Text('立即更新'),
-            ),
-          ],
-        ),
-      ),
-    );
+    final sorted = [...sources]
+      ..sort((a, b) => b.buildNumber.compareTo(a.buildNumber));
+    setState(() {
+      _messages.add(_ChatMessage.update(sources: sorted));
+    });
+    _forceScrollToBottom();
   }
 
   Future<void> _downloadAndInstall(UpdateInfo info) async {
     if (!mounted) return;
-    // 下载提示可关闭（返回键/点击遮罩/「后台下载」都不打断下载，只收起弹窗）。
-    // 之前 barrierDismissible: false 无取消按钮，国内慢网时 UI 永久阻塞。
-    var dialogOpen = true;
-    showDialog<void>(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => AlertDialog(
-        content: const Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Text('正在下载更新…'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('后台下载'),
-          ),
-        ],
-      ),
-    ).then((_) => dialogOpen = false);
-    final ok = await UpdateService.downloadAndInstall(info.downloadUrl);
+    // 找到对应的内联 update 卡，标记开始下载 + 实时进度。
+    final idx = _messages.lastIndexWhere((m) =>
+        m.role == 'update' && !m.updateStarted && m.updateSources.contains(info));
+    if (idx < 0) return;
+    final msg = _messages[idx];
+    setState(() {
+      msg.updateStarted = true;
+      msg.updateProgress = 0;
+    });
+
+    // Linux：下载 .deb 到 ~/Downloads，提示用户手动安装。
+    if (Platform.isLinux) {
+      final path = await UpdateService.downloadLinuxDeb(
+        info.downloadUrl,
+        onProgress: (p) {
+          if (mounted) setState(() => msg.updateProgress = p);
+        },
+      );
+      if (!mounted) return;
+      setState(() => msg.updateProgress = null);
+      if (path != null) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('已下载到 $path\n手动安装：sudo dpkg -i "$path"'),
+          duration: const Duration(seconds: 8),
+        ));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('下载失败，请稍后重试')),
+        );
+      }
+      return;
+    }
+
+    // Android：AppInstallerPlus（自带 FileProvider + 授权引导）。
+    final ok = await UpdateService.downloadAndInstall(
+      info.downloadUrl,
+      onProgress: (p) {
+        if (mounted) setState(() => msg.updateProgress = p);
+      },
+    );
     if (!mounted) return;
-    // 弹窗还开着才关；用户已手动关闭则不再 pop（否则会误弹掉聊天页）。
-    if (dialogOpen) Navigator.of(context).pop();
+    setState(() => msg.updateProgress = null);
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('下载/安装失败，请稍后重试')),
@@ -1251,119 +1282,27 @@ class _ChatScreenState extends State<ChatScreen> {
     _addAssistant('[定时任务完成]\n$result');
   }
 
-  /// clarify 回调：弹对话框收集用户答案。
+  /// clarify 回调：内联选择卡（取缔弹窗，用户能边看上下文边选）。
   ///
-  /// P6：交互对齐学习模式「选择模式」——选项用可点卡片而非勾选框；
-  /// 单选点一下即选，多选点选后按确定（对齐主题设置的"分层选择"手感）。
+  /// 插入一条 clarify 消息 → 消息流里渲染成可点选项卡 → 用户点选后
+  /// complete 这个 Future → clarify 工具返回答案 → agent 继续。
+  /// 单选点一下即选；多选点选后按「确定」；无选项时可自由输入。
   Future<String> _showClarifyDialog(
     String question,
     List<String> choices,
     bool multiSelect,
   ) async {
-    final controller = TextEditingController();
-    final selected = <String>{};
-    final answer = await showDialog<String>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
-          Widget choiceCard(String c) {
-            final isSel = selected.contains(c);
-            return InkWell(
-              borderRadius: BorderRadius.circular(10),
-              onTap: () {
-                if (multiSelect) {
-                  setDialogState(() {
-                    if (isSel) {
-                      selected.remove(c);
-                    } else {
-                      selected.add(c);
-                    }
-                  });
-                } else {
-                  Navigator.pop(ctx, c);
-                }
-              },
-              child: Container(
-                margin: const EdgeInsets.symmetric(vertical: 3),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  color: isSel
-                      ? Theme.of(ctx).colorScheme.primary.withValues(alpha: 0.15)
-                      : Theme.of(ctx).colorScheme.surfaceContainerHighest,
-                  border: Border.all(
-                    color: isSel
-                        ? Theme.of(ctx).colorScheme.primary
-                        : Theme.of(ctx).dividerColor,
-                  ),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(c,
-                          style: TextStyle(
-                            fontWeight:
-                                isSel ? FontWeight.w600 : FontWeight.normal,
-                          )),
-                    ),
-                    if (isSel)
-                      Icon(Icons.check,
-                          size: 18, color: Theme.of(ctx).colorScheme.primary),
-                  ],
-                ),
-              ),
-            );
-          }
-
-          return AlertDialog(
-            title: const Text('MIX 想确认一下'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(question,
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
-                  if (choices.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    for (final c in choices) choiceCard(c),
-                  ],
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: controller,
-                    decoration: const InputDecoration(
-                      labelText: '或直接输入回答',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, ''),
-                child: const Text('跳过'),
-              ),
-              FilledButton(
-                onPressed: () {
-                  final typed = controller.text.trim();
-                  if (typed.isNotEmpty) {
-                    Navigator.pop(ctx, typed);
-                  } else if (selected.isNotEmpty) {
-                    Navigator.pop(ctx, selected.join('、'));
-                  } else {
-                    Navigator.pop(ctx, '');
-                  }
-                },
-                child: const Text('确定'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-    return answer ?? '';
+    final completer = Completer<String>();
+    setState(() {
+      _messages.add(_ChatMessage.clarify(
+        question: question,
+        choices: choices,
+        multiSelect: multiSelect,
+        completer: completer,
+      ));
+    });
+    _forceScrollToBottom();
+    return completer.future;
   }
 
   /// 只读工具集（plan 模式用）：过滤掉写操作，防 plan 阶段误改文件。
@@ -1907,6 +1846,290 @@ class _ChatScreenState extends State<ChatScreen> {
     return m?.group(0) ?? s;
   }
 
+  /// 用户点选内联 clarify 卡：complete Future，让 agent 拿到答案继续。
+  void _onClarifySelect(_ChatMessage m, String answer) {
+    final completer = m.clarifyCompleter;
+    if (completer == null || completer.isCompleted) return;
+    completer.complete(answer);
+  }
+
+  /// 渲染内联 clarify 选择卡（问题 + 可点选项 / 多选 + 自由输入）。
+  Widget _buildClarifyCard(_ChatMessage m) {
+    final answered =
+        m.clarifyCompleter == null || m.clarifyCompleter!.isCompleted;
+    final choices = m.clarifyChoices;
+    final multi = m.clarifyMultiSelect;
+
+    Widget optionTile(String c) {
+      final isSel = m.clarifySelected.contains(c);
+      return InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: answered
+            ? null
+            : () {
+                setState(() {
+                  if (multi) {
+                    if (isSel) {
+                      m.clarifySelected.remove(c);
+                    } else {
+                      m.clarifySelected.add(c);
+                    }
+                  } else {
+                    m.clarifySelected.clear();
+                    m.clarifySelected.add(c);
+                  }
+                });
+                if (!multi) _onClarifySelect(m, c);
+              },
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: isSel
+                ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.15)
+                : Theme.of(context).colorScheme.surfaceContainerHighest,
+            border: Border.all(
+              color: isSel
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).dividerColor,
+            ),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(c,
+                    style: TextStyle(
+                      fontWeight: isSel ? FontWeight.w600 : FontWeight.normal,
+                    )),
+              ),
+              if (isSel)
+                Icon(Icons.check,
+                    size: 18, color: Theme.of(context).colorScheme.primary),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
+        border: Border.all(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.help_outline,
+                  size: 16, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 6),
+              Text('MIX 想确认一下',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  )),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(m.clarifyQuestion ?? '',
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          if (choices.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            for (final c in choices) optionTile(c),
+          ],
+          if (!answered) ...[
+            if (multi && choices.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => _onClarifySelect(m, ''),
+                    child: const Text('跳过'),
+                  ),
+                  const SizedBox(width: 4),
+                  FilledButton(
+                    onPressed: m.clarifySelected.isEmpty
+                        ? null
+                        : () => _onClarifySelect(
+                            m, m.clarifySelected.join('、')),
+                    child: const Text('确定'),
+                  ),
+                ],
+              ),
+            ] else if (choices.isEmpty) ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: _clarifyInput,
+                decoration: const InputDecoration(
+                  hintText: '直接输入回答',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => _onClarifySelect(m, ''),
+                    child: const Text('跳过'),
+                  ),
+                  const SizedBox(width: 4),
+                  FilledButton(
+                    onPressed: () =>
+                        _onClarifySelect(m, _clarifyInput.text.trim()),
+                    child: const Text('确定'),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 渲染内联更新卡（版本 + 说明 + 源选择 + 立即更新/稍后 + 进度）。
+  Widget _buildUpdateCard(_ChatMessage m) {
+    if (m.updateDismissed) return const SizedBox.shrink();
+    final sources = m.updateSources;
+    if (sources.isEmpty) return const SizedBox.shrink();
+    final latest = sources.first; // 已按 build 降序。
+    final started = m.updateStarted;
+    final progress = m.updateProgress;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
+        border: Border.all(
+            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.system_update_alt,
+                  size: 16, color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 6),
+              Text('发现新版本 v${latest.version}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  )),
+            ],
+          ),
+          const SizedBox(height: 6),
+          if (latest.notes?.trim().isNotEmpty == true) ...[
+            Text(latest.notes!, maxLines: 5, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 8),
+          ],
+          // 源选择（多源时展示，明确镜像/GitHub 选项）。
+          if (sources.length > 1 && !started) ...[
+            for (var i = 0; i < sources.length; i++)
+              _buildUpdateSourceTile(m, i),
+            const SizedBox(height: 6),
+          ],
+          // 下载进度 / 操作按钮。
+          if (started) ...[
+            LinearProgressIndicator(value: progress),
+            const SizedBox(height: 8),
+            Text(
+              progress != null
+                  ? '下载中 ${(progress! * 100).toStringAsFixed(0)}%'
+                  : '正在下载…',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ] else ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => setState(() => m.updateDismissed = true),
+                  child: const Text('稍后'),
+                ),
+                const SizedBox(width: 4),
+                FilledButton(
+                  onPressed: () =>
+                      _downloadAndInstall(sources[m.updateSelectedIdx]),
+                  child: Text(Platform.isLinux ? '下载 .deb' : '立即更新'),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// 更新卡的单个下载源选项（国内镜像 / GitHub）。
+  Widget _buildUpdateSourceTile(_ChatMessage m, int idx) {
+    final s = m.updateSources[idx];
+    final selected = m.updateSelectedIdx == idx;
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: m.updateStarted
+          ? null
+          : () => setState(() => m.updateSelectedIdx = idx),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected
+              ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.15)
+              : Theme.of(context).colorScheme.surfaceContainerHighest,
+          border: Border.all(
+            color: selected
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).dividerColor,
+          ),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              selected ? Icons.check_circle : Icons.radio_button_unchecked,
+              size: 18,
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : Theme.of(context).dividerColor,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(s.source,
+                      style: TextStyle(
+                          fontWeight:
+                              selected ? FontWeight.w600 : FontWeight.normal)),
+                  Text(
+                    s.source == '国内镜像' ? '快，免科学上网' : '官方源，可能需科学上网',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// 渲染题目卡（选项按钮 + 机械判）。
   Widget _buildStudyCard(Map<String, dynamic> q) {
     final options = (q['options'] as List).cast<String>();
@@ -2236,6 +2459,10 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
         );
+      case 'clarify':
+        return _buildClarifyCard(m);
+      case 'update':
+        return _buildUpdateCard(m);
       case 'study':
         return _buildStudyCard({
           'question': m.studyQuestion,
