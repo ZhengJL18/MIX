@@ -190,7 +190,9 @@ String gitStatus({required String path}) {
     } else {
       lines.add('* 未暂存改动:');
       for (final s in status) {
-        lines.add('  - ${s.path}');
+        // _statusEntries 返回 Map({'path': ...}) 或 IndexEntry，统一取 path。
+        final p = s is Map ? s['path'] : (s as dynamic).path;
+        lines.add('  - $p');
       }
     }
     // 未跟踪文件（untracked）：工作区有、index 没有的新文件。

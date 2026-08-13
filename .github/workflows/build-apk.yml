@@ -141,11 +141,16 @@ jobs:
           exec /opt/mix/mix "\$@"
           EOF
           chmod +x "$PKG/usr/bin/mix"
+          # 启动器图标：bundle 里已有 data/mix.png（CMake install 拷入），
+          # 再装到 hicolor 主题目录，.desktop 的 Icon=mix 才能被桌面环境找到。
+          mkdir -p "$PKG/usr/share/icons/hicolor/192x192/apps"
+          cp build/linux/x64/release/bundle/data/mix.png "$PKG/usr/share/icons/hicolor/192x192/apps/mix.png"
           cat > "$PKG/usr/share/applications/mix.desktop" <<EOF
           [Desktop Entry]
           Name=MIX
           Comment=AI 学习助手
           Exec=/opt/mix/mix
+          Icon=mix
           Terminal=false
           Type=Application
           Categories=Utility;
