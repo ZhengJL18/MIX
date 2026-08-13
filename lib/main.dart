@@ -502,6 +502,7 @@ class _ChatScreenState extends State<ChatScreen> {
     studyListHandler = _studyList;
     studyQuestionHandler = _studyQuestion;
     studyProfileUpdateHandler = _studyProfileUpdate;
+    studyRecordHandler = _studyRecord;
     // 对话历史页「继续聊天」→ 切换到指定会话并加载历史。
     resumeSessionHandler = _resumeSession;
     // 设置页「检查更新」→ 复用聊天页的检查逻辑。
@@ -1075,6 +1076,29 @@ class _ChatScreenState extends State<ChatScreen> {
       return await svc.updateProfile(note, reasoningEffort: effort);
     } catch (e) {
       return '画像更新失败: $e';
+    }
+  }
+
+  /// study_record 执行器：落库本次作答（对/错）到 practice_records。
+  /// 这是掌握度（近 N 题正确率）的唯一数据源，agent 判题后必须调用。
+  Future<String> _studyRecord({
+    required int questionId,
+    required bool correct,
+    String? mainCause,
+    String? minorCause,
+  }) async {
+    final engine = _studyEngine;
+    if (engine == null) return '作答记录失败：学习引擎未初始化';
+    try {
+      await engine.recordAnswer(
+        questionId: questionId,
+        correct: correct,
+        mainCause: mainCause,
+        minorCause: minorCause,
+      );
+      return '已记录作答';
+    } catch (e) {
+      return '作答记录失败: $e';
     }
   }
 

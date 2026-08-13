@@ -19,6 +19,38 @@ Future<String> Function()? studyListHandler;
 /// 画像更新执行器：把本次作答观察写进学生画像（0_profile.md）。
 Future<String> Function(String note)? studyProfileUpdateHandler;
 
+/// 作答记录执行器：把判题结果写入 practice_records（掌握度来源）。
+Future<String> Function({
+  required int questionId,
+  required bool correct,
+  String? mainCause,
+  String? minorCause,
+})? studyRecordHandler;
+
+/// study_record 工具 handler：落库本次作答（对/错）。
+Future<String> _handleStudyRecord(Map<String, dynamic> args,
+    [Map<String, dynamic>? kwargs]) async {
+  final handler = studyRecordHandler;
+  if (handler == null) {
+    return toolError('study_record: 学习引擎未初始化');
+  }
+  final qid = args['question_id'];
+  if (qid is! int && qid is! String) {
+    return toolError('study_record: 缺少有效的 question_id');
+  }
+  final correct = args['correct'] == true;
+  try {
+    return await handler(
+      questionId: qid is String ? int.tryParse(qid) ?? 0 : qid,
+      correct: correct,
+      mainCause: args['main_cause'] as String?,
+      minorCause: args['minor_cause'] as String?,
+    );
+  } catch (e) {
+    return toolError('study_record failed: $e');
+  }
+}
+
 /// study_profile_update 工具 handler。
 Future<String> _handleStudyProfileUpdate(Map<String, dynamic> args,
     [Map<String, dynamic>? kwargs]) async {
@@ -107,6 +139,33 @@ const Map<String, dynamic> _studyProfileUpdateSchema = {
   },
 };
 
+const Map<String, dynamic> _studyRecordSchema = {
+  'name': 'study_record',
+  'description':
+      'Record the student\'s answer to a question into practice history. This '
+      'drives mastery calculation (recent accuracy) and future question '
+      'targeting. Call IMMEDIATELY after the student answers, BEFORE explaining. '
+      'The question_id comes from the study_question result JSON.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'question_id': {
+        'type': 'integer',
+        'description': 'The question_id returned by study_question',
+      },
+      'correct': {
+        'type': 'boolean',
+        'description': 'Whether the student answered correctly',
+      },
+      'main_cause': {
+        'type': 'string',
+        'description': 'Optional main cause if wrong (e.g. concept confusion)',
+      },
+    },
+    'required': ['question_id', 'correct'],
+  },
+};
+
 const Map<String, dynamic> _studyQuestionSchema = {
   'name': 'study_question',
   'description':
@@ -159,5 +218,13 @@ void registerStudyTools() {
     handler: _handleStudyProfileUpdate,
     isAsync: true,
     emoji: '👤',
+  );
+  registry.register(
+    name: 'study_record',
+    toolset: 'study',
+    schema: _studyRecordSchema,
+    handler: _handleStudyRecord,
+    isAsync: true,
+    emoji: '✅',
   );
 }

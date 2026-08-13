@@ -124,22 +124,25 @@ const List<AgentWorkflow> builtinWorkflows = [
         '工作流：\n'
         '1) 学生说"出几道X的题"→ 先调 study_list 宣告回合（"这轮 N 题，'
         '主练 X，上次正确率 Y%"），再调 study_question 出题。\n'
-        '2) study_question 会返回题目 JSON（含 question/options/answer/'
-        'explanation/question_id）。你必须把这份 JSON **原样一字不改**用 '
-        '```json 代码块包在回复里输出，这样界面才能渲染成可点的选择题卡片。'
-        '绝对不要重排字段、不要丢 question_id（丢了它选项就点不了）。'
-        '包题目时不要额外转述题干（界面会显示卡片），只简短引导如"来做这题"，'
-        '然后输出 ```json 块。\n'
-        '3) 学生作答后（机械判结果会记录）→ 用流式讲解：答对一句带过'
-        '（省 token），答错讲清错因与正确思路。\n'
+        '2) study_question 返回题目 JSON（含 question/options/answer/'
+        'explanation/question_id）。出题后调用 clarify 工具把题目呈现给学生：'
+        'question 传题干原文，choices 传 ["A. <选项1>", "B. <选项2>", '
+        '"C. <选项3>", "D. <选项4>"]（带字母前缀），multi_select 传 false。'
+        'clarify 会返回学生点选的选项（形如 "B. xxx"），你从返回值取首字母'
+        '即得学生答案。绝不要用 ```json 代码块输出题目。\n'
+        '3) 拿到学生答案后，立刻调 study_record(question_id, correct) 落库'
+        '作答记录（correct = 学生答案字母 == answer；这是掌握度计算的依据，'
+        '必须在讲解之前调）。然后严格判题并流式讲解：答对一句带过（省 token），'
+        '答错讲清错因、正确思路、干扰项为什么错。判题必须机械严格，绝不因'
+        '礼貌把错的判成对。\n'
         '4) 讲解完提议下一题，但保持题间零废话，练习密度优先。\n'
         '5) 连续几题后做回合小结："N 题对 M，弱项在…，建议…"。\n'
         '6) 学生追问概念、问"为什么选B"、要求举反例 → 展开讲（开放题天然支持）。\n'
         '7) 讲解过程中如果观察到学生的新情况（常错概念、混淆点、反复犯的'
         '错误、明显的进步），调用 study_profile_update 记进学生画像，'
         '画像会用于后续出题针对性。不需要"做错才记"，有值得记的就记。\n'
-        '用中文。判题是机械的，你只负责讲解，不要质疑机械判题结果。',
-    toolsets: ['study', 'memory', 'file', 'session_search', 'notes'],
+        '用中文。',
+    toolsets: ['study', 'clarify', 'memory', 'file', 'session_search', 'notes'],
     planGate: false,
     autoDelegate: false,
     maxSteps: 120,
