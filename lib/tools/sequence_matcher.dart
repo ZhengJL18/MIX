@@ -344,27 +344,18 @@ class SequenceMatcherLines {
   }
 
   // 元素级最长公共子序列（difflib 的 j2len 动态规划，逐元素即整行）。
-  // Python 的 unified_diff 用默认 autojunk=True：行列表 >=200 且某行重复
-  // count > n//100+1 时，该行从 b2j 删除（视为 popular）。
+  // 注意：故意**不**复刻 difflib 的 autojunk。autojunk 会把空行 '\n' 这类
+  // popular 行（出现次数 > n/100+1）从 b2j 删除，导致 unified diff 里所有
+  // 空行都无法匹配，产出满屏 "-空行 +空行" 噪音（现象：patch 工具的 diff
+  // 显示大量 `-\n+\n`）。diff 展示优先正确/可读，代码文件规模下无性能问题，
+  // 故关闭 autojunk。
   List<(int, int, int)> _matchingBlocks() {
     final la = a.length;
     final lb = b.length;
-    // 构建 b2j（行→位置表），并应用 autojunk。
+    // 构建 b2j（行→位置表），不应用 autojunk。
     final b2j = <String, List<int>>{};
     for (var j = 0; j < lb; j++) {
       b2j.putIfAbsent(b[j], () => []).add(j);
-    }
-    if (lb >= 200) {
-      final count = <String, int>{};
-      for (final line in b) {
-        count[line] = (count[line] ?? 0) + 1;
-      }
-      final ntest = lb ~/ 100 + 1;
-      count.forEach((k, v) {
-        if (v > ntest) {
-          b2j.remove(k);
-        }
-      });
     }
 
     final queue = <(int, int, int, int)>[(0, la, 0, lb)];
