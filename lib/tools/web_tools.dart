@@ -1,7 +1,8 @@
 /// 对应 `ref/hermes-agent/tools/web_tools.py`（像素级复刻，接口对齐）。
 ///
 /// web_search / web_extract 工具。Hermes 用插件后端（Firecrawl/Tavily/Exa/
-/// ddgs）；手机版 App 内置**无 key 的 DuckDuckGo 后端**，用户无需配搜索 key。
+/// ddgs）；手机版 App 内置**无 key 搜索链**（谷歌 → 必应 → DuckDuckGo
+/// 逐级 fallback），用户无需配搜索 key。
 ///
 /// ## 返回格式（对齐 Hermes）
 /// - webSearchTool → `{success, data: {web: [{title, url, description, position}]}}`
@@ -100,6 +101,135 @@ class DuckDuckGoBackend implements WebSearchBackend {
   }
 }
 
+/// 谷歌网页搜索后端（免费无 key）。
+///
+/// 主请求 `www.google.com/search?gbv=1`（无 JS 基础版 HTML）解析网页结果；
+/// 被墙/反爬/空结果时自动回退 Google News RSS（news.google.com 官方公开接口）。
+class GoogleBackend implements WebSearchBackend {
+  @override
+  bool get requiresKey => false;
+
+  @override
+  Future<List<Map<String, dynamic>>> search(String query, int limit) async {
+    final results = await _searchWeb(query, limit);
+    if (results.isNotEmpty) return results;
+    return _searchNews(query, limit);
+  }
+
+  /// Google 网页搜索（gbv=1 无 JS HTML）。
+  Future<List<Map<String, dynamic>>> _searchWeb(String query, int limit) async {
+    try {
+      final uri = Uri.https('www.google.com', '/search', {
+        'q': query,
+        'num': limit.clamp(1, 10).toString(),
+        'hl': 'zh-CN',
+        'gl': 'CN',
+        'gbv': '1',
+      });
+      final resp = await webHttpClient.get(
+        uri,
+        headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+          'Accept-Language': 'zh-CN,zh;q=0.9',
+        },
+      ).timeout(const Duration(seconds: 15));
+      if (resp.statusCode != 200) return const [];
+      return _parseGoogleHtml(
+          utf8.decode(resp.bodyBytes, allowMalformed: true), limit);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Google News RSS（稳定兜底，官方公开无 key）。
+  Future<List<Map<String, dynamic>>> _searchNews(String query, int limit) async {
+    try {
+      final uri = Uri.https('news.google.com', '/rss/search', {
+        'q': query,
+        'hl': 'zh-CN',
+        'gl': 'CN',
+        'ceid': 'CN:zh-Hans',
+      });
+      final resp = await webHttpClient.get(
+        uri,
+        headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 '
+              '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+        },
+      ).timeout(const Duration(seconds: 15));
+      if (resp.statusCode != 200) return const [];
+      return parseRssXml(
+          utf8.decode(resp.bodyBytes, allowMalformed: true), limit);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// 解析 gbv=1 无 JS 版搜索结果 HTML。
+  List<Map<String, dynamic>> _parseGoogleHtml(String html, int limit) {
+    final results = <Map<String, dynamic>>[];
+    // 结果块：<h3><a href="...">标题</a></h3>。
+    final h3Re = RegExp(
+        r'<h3[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)</a>[\s\S]*?</h3>',
+        caseSensitive: false);
+    for (final m in h3Re.allMatches(html)) {
+      if (results.length >= limit) break;
+      final url = _googleRealUrl(m.group(1) ?? '');
+      final title = _stripHtml(m.group(2) ?? '').trim();
+      if (url == null || title.isEmpty) continue;
+      results.add({
+        'title': title,
+        'url': url,
+        'description': '',
+        'position': results.length + 1,
+      });
+    }
+    // 摘要：按顺序配对 <div class="VwiC3b"> 摘要块。
+    final snippets = RegExp(
+      r'<div class="VwiC3b[^"]*"[^>]*>([\s\S]*?)</div>',
+      caseSensitive: false,
+    ).allMatches(html).toList();
+    for (var i = 0; i < results.length && i < snippets.length; i++) {
+      final text = _stripHtml(snippets[i].group(1) ?? '').trim();
+      if (text.isNotEmpty) results[i]['description'] = text;
+    }
+    return results;
+  }
+
+  /// 从 Google 结果 href 提取真实 URL（/url?q=... → decode）。
+  String? _googleRealUrl(String href) {
+    final h = href.trim();
+    if (h.startsWith('/url?q=')) {
+      final qm = RegExp(r'[?&]q=([^&]+)').firstMatch(h);
+      if (qm != null) {
+        try {
+          return Uri.decodeQueryComponent(qm.group(1)!);
+        } catch (_) {
+          return null;
+        }
+      }
+      return null;
+    }
+    if (h.startsWith('http://') || h.startsWith('https://')) return h;
+    return null;
+  }
+
+  /// 极简去标签 + HTML 实体解码。
+  String _stripHtml(String s) => s
+      .replaceAll(RegExp(r'<[^>]+>'), '')
+      .replaceAll('&amp;', '&')
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&#39;', "'")
+      .replaceAll('&nbsp;', ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
 /// 必应 RSS 后端（免费无 key，中文搜索质量高）。
 ///
 /// `cn.bing.com/search?q=<query>&format=rss&mkt=zh-CN` 返回标准 RSS 2.0 XML，
@@ -129,58 +259,63 @@ class BingBackend implements WebSearchBackend {
         return const [];
       }
       final xmlText = utf8.decode(resp.bodyBytes);
-      return _parseRss(xmlText, limit);
+      return parseRssXml(xmlText, limit);
     } catch (_) {
       return const [];
     }
   }
+}
 
-  /// 解析 RSS XML → 搜索结果列表。
-  List<Map<String, dynamic>> _parseRss(String xmlText, int limit) {
-    final results = <Map<String, dynamic>>[];
-    try {
-      final doc = XmlDocument.parse(xmlText);
-      final items = doc.findAllElements('item').take(limit);
-      for (final item in items) {
-        final title = item.findElements('title').isEmpty
-            ? ''
-            : item.findElements('title').first.innerText;
-        final link = item.findElements('link').isEmpty
-            ? ''
-            : item.findElements('link').first.innerText;
-        final desc = item.findElements('description').isEmpty
-            ? ''
-            : item.findElements('description').first.innerText;
-        if (title.isNotEmpty && link.isNotEmpty) {
-          results.add({
-            'title': title,
-            'url': link,
-            'description': desc,
-            'position': results.length + 1,
-          });
-        }
+/// 解析 RSS 2.0 XML → 搜索结果列表（必应 / Google News 共用）。
+List<Map<String, dynamic>> parseRssXml(String xmlText, int limit) {
+  final results = <Map<String, dynamic>>[];
+  try {
+    final doc = XmlDocument.parse(xmlText);
+    final items = doc.findAllElements('item').take(limit);
+    for (final item in items) {
+      final title = item.findElements('title').isEmpty
+          ? ''
+          : item.findElements('title').first.innerText;
+      final link = item.findElements('link').isEmpty
+          ? ''
+          : item.findElements('link').first.innerText;
+      final desc = item.findElements('description').isEmpty
+          ? ''
+          : item.findElements('description').first.innerText;
+      if (title.isNotEmpty && link.isNotEmpty) {
+        results.add({
+          'title': title,
+          'url': link,
+          'description': desc,
+          'position': results.length + 1,
+        });
       }
-    } catch (_) {}
-    return results;
-  }
+    }
+  } catch (_) {}
+  return results;
 }
 
 /// 活动搜索后端（默认必应；失败 fallback DDG）。
-WebSearchBackend webSearchBackend = BingBackend();
-WebSearchBackend webSearchFallbackBackend = DuckDuckGoBackend();
+WebSearchBackend webSearchBackend = GoogleBackend();
+WebSearchBackend webSearchFallbackBackend = BingBackend();
+WebSearchBackend webSearchFallbackBackend2 = DuckDuckGoBackend();
 
 /// web_search 工具：返回搜索元数据（URL/标题/描述）。
 ///
-/// 对应 Hermes web_search_tool。默认必应（中文质量高），失败 fallback DDG。
+/// 对应 Hermes web_search_tool。搜索链：谷歌 → 必应 → DDG 逐级 fallback。
 Future<String> webSearchTool(String query, {int limit = 5}) async {
   if (limit < 1 || limit > 100) {
     limit = 5;
   }
   try {
     var results = await webSearchBackend.search(query, limit);
-    // 必应无结果 → fallback DDG。
+    // 主后端无结果 → 必应。
     if (results.isEmpty) {
       results = await webSearchFallbackBackend.search(query, limit);
+    }
+    // 必应也无结果 → DuckDuckGo。
+    if (results.isEmpty) {
+      results = await webSearchFallbackBackend2.search(query, limit);
     }
     return jsonEncode({
       'success': true,

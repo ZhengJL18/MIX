@@ -98,13 +98,36 @@ void main() {
       }
     });
 
-    test('必应空结果 fallback DDG', () async {
-      // 必应返回空 RSS。
-      var bingCalled = false;
-      final origBing = webSearchBackend;
+    test('主后端空结果 → 必应返回', () async {
+      final orig = webSearchBackend;
       final origFallback = webSearchFallbackBackend;
+      final origFallback2 = webSearchFallbackBackend2;
       webSearchBackend = _EmptyBackend();
       webSearchFallbackBackend = _FixedBackend([
+        {'title': 'Bing 结果', 'url': 'http://bing.example', 'description': 'bing', 'position': 1},
+      ]);
+      webSearchFallbackBackend2 = _FixedBackend([
+        {'title': '不应走到 DDG', 'url': 'http://ddg.example', 'description': 'ddg', 'position': 1},
+      ]);
+      try {
+        final result = await webSearchTool('x');
+        final map = jsonDecode(result) as Map;
+        final web = (map['data'] as Map)['web'] as List;
+        expect(web.first['title'], 'Bing 结果');
+      } finally {
+        webSearchBackend = orig;
+        webSearchFallbackBackend = origFallback;
+        webSearchFallbackBackend2 = origFallback2;
+      }
+    });
+
+    test('主+必应都空结果 → DDG 兜底', () async {
+      final orig = webSearchBackend;
+      final origFallback = webSearchFallbackBackend;
+      final origFallback2 = webSearchFallbackBackend2;
+      webSearchBackend = _EmptyBackend();
+      webSearchFallbackBackend = _EmptyBackend();
+      webSearchFallbackBackend2 = _FixedBackend([
         {'title': 'DDG 结果', 'url': 'http://ddg.example', 'description': 'ddg', 'position': 1},
       ]);
       try {
@@ -112,10 +135,10 @@ void main() {
         final map = jsonDecode(result) as Map;
         final web = (map['data'] as Map)['web'] as List;
         expect(web.first['title'], 'DDG 结果');
-        expect(bingCalled, isFalse);
       } finally {
-        webSearchBackend = origBing;
+        webSearchBackend = orig;
         webSearchFallbackBackend = origFallback;
+        webSearchFallbackBackend2 = origFallback2;
       }
     });
   });
