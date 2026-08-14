@@ -1,6 +1,6 @@
 # MIX
 
-在 Flutter 隔离墙（Android App 沙盒）内实现 agent 级能力的纯 Dart 框架，目标是「基于推荐算法、像刷抖音一样学习」的学习 App + 通用 AI agent。
+在 Flutter 隔离墙（Android App 沙盒）内实现 agent 级能力的纯 Dart 框架，通用 AI agent。
 
 **复刻策略**：以开源 [Hermes Agent](https://github.com/NousResearch/hermes-agent)（main，锚定 commit `0a62610f10cc34d696b2239b2c69fa1ba0f1ca63`）为唯一行为规范，用 Dart 逐文件重写其核心闭环，**不自创工具系统**。复刻清单见 `docs/HERMES_MAPPING.md`。
 
