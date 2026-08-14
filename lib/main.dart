@@ -1890,80 +1890,6 @@ class _ChatScreenState extends State<ChatScreen> {
     return m?.group(0) ?? s;
   }
 
-  /// 提取选项的字母前缀（"B. xxx" → "B"；"2) xxx" 无字母返回 null）。
-  String? _optionLetter(String opt) {
-    final m = RegExp(r'^\s*([A-Za-z])\s*[.、:：)）]').firstMatch(opt);
-    return m?.group(1)?.toUpperCase();
-  }
-
-  /// study_quiz 判对错：picked（字母或文本）是否命中正确答案。
-  ///
-  /// 与 clarify 不同：quiz 的 answer 协议是**选项文本**（"与选项文本一致"），
-  /// 而点选项传的是字母（"B"）。所以先做「字母 ↔ 选项文本」双向规约再比较，
-  /// 否则选对也会被判错。
-  bool _isQuizCorrect(String picked, Map<String, dynamic> q) {
-    final ans = (q['answer'] as String? ?? '').trim();
-    if (ans.isEmpty) return true; // 无正确答案则不判，视为通过。
-    final options =
-        (q['options'] as List?)?.whereType<String>().toList() ?? const [];
-    const optLetters = ['A', 'B', 'C', 'D'];
-
-    String strip(String s) => s
-        .replaceFirst(RegExp(r'^\s*[A-Za-z]\s*[.、:：)）]\s*'), '')
-        .trim();
-
-    // picked → 规约文本：字母则映射回对应选项文本，否则原文。
-    String pickedText = picked.trim();
-    final pLetter = _optionLetter(picked) ??
-        (picked.trim().length == 1 ? picked.trim().toUpperCase() : null);
-    if (pLetter != null) {
-      final idx = optLetters.indexOf(pLetter);
-      if (idx >= 0 && idx < options.length) {
-        pickedText = options[idx];
-      }
-    }
-    // answer → 规约文本：字母则映射回对应选项文本（缺失 options 时保留字母）。
-    String aText = ans;
-    final aLetter = _optionLetter(ans) ??
-        (ans.length == 1 ? ans.toUpperCase() : null);
-    if (aLetter != null) {
-      final idx = optLetters.indexOf(aLetter);
-      if (idx >= 0 && idx < options.length) {
-        aText = options[idx];
-      }
-    }
-
-    final pBody = strip(pickedText);
-    final aBody = strip(aText);
-    if (pBody.isNotEmpty && aBody.isNotEmpty) {
-      if (pBody == aBody || pBody.contains(aBody) || aBody.contains(pBody)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /// 机械判对错：picked 是否命中正确答案 answer（字母优先，退文本包含）。
-  /// 纯字符串匹配，永不误判——这正是判题交给 UI 而非 LLM 的价值。
-  bool _isClarifyCorrect(String picked, String answer) {
-    final a = answer.trim();
-    if (a.isEmpty) return true; // 无正确答案则不判，视为通过。
-    final aLetter = _optionLetter(a) ?? (a.length == 1 ? a.toUpperCase() : null);
-    final pLetter = _optionLetter(picked);
-    if (aLetter != null && pLetter != null && aLetter == pLetter) return true;
-    String strip(String s) => s
-        .replaceFirst(RegExp(r'^\s*[A-Za-z]\s*[.、:：)）]\s*'), '')
-        .trim();
-    final pBody = strip(picked);
-    final aBody = strip(a);
-    if (pBody.isNotEmpty && aBody.isNotEmpty) {
-      if (pBody == aBody || pBody.contains(aBody) || aBody.contains(pBody)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   /// 用户点选内联 clarify 卡：complete Future，让 agent 拿到答案继续。
   /// 带 [m.clarifyAnswer] 且单选时，UI 机械判对错并返回带「回答正确/错误」
   /// 标记的结果，agent 据此讲解 + 落库（不再自己比较字母）。
@@ -2925,10 +2851,6 @@ class _QuizCardsViewState extends State<_QuizCardsView> {
       // 可用行宽内的估算字符数（中文/全角按 1，半角按 0.6，粗估）。
       final usableW = (w - 56).clamp(120.0, 900.0);
       int charsPerLine(String s) {
-        var units = 0.0;
-        for (final ch in s.runes) {
-          units += ch > 0x2E7F ? 1.0 : 0.6; // CJK/全角按 1 行单位
-        }
         return (usableW / 14).floor().clamp(8, 60); // 14px 每单位粗估
       }
 
@@ -2964,7 +2886,7 @@ class _QuizCardsViewState extends State<_QuizCardsView> {
     }
     // 上限：屏幕 82% 高度内（超长内容仍可滑动）；下限：基准高度。
     final cap = (screenH * 0.82).clamp(base, screenH * 0.92);
-    return needed.clamp(base, cap);
+    return needed.clamp(base, cap).toDouble();
   }
 
   Widget _buildQuestionCard(_ChatMessage m, int index) {
@@ -3036,7 +2958,7 @@ class _QuizCardsViewState extends State<_QuizCardsView> {
                         enabled: !answered,
                         onTap: () => widget.onAnswer(index, optLetters[i]),
                       ),
-                    if (answered && picked != null && !optLetters.contains(picked))
+                    if (answered && !optLetters.contains(picked))
                       _CustomAnswerShown(picked: picked, isCorrect: isCorrect)
                     else if (!answered)
                       _CustomAnswerField(
@@ -3271,7 +3193,7 @@ class _CustomAnswerFieldState extends State<_CustomAnswerField> {
               controller: _controller,
               maxLines: 1,
               textInputAction: TextInputAction.done,
-              onSubmitted: _submit,
+              onSubmitted: (_) => _submit(),
               decoration: InputDecoration(
                 hintText: '都不对？输入你的答案…',
                 isDense: true,
@@ -3370,4 +3292,78 @@ class _ScrollToBottomButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 提取选项的字母前缀（"B. xxx" → "B"；"2) xxx" 无字母返回 null）。
+String? _optionLetter(String opt) {
+  final m = RegExp(r'^\s*([A-Za-z])\s*[.、:：)）]').firstMatch(opt);
+  return m?.group(1)?.toUpperCase();
+}
+
+/// study_quiz 判对错：picked（字母或文本）是否命中正确答案。
+///
+/// 与 clarify 不同：quiz 的 answer 协议是**选项文本**（"与选项文本一致"），
+/// 而点选项传的是字母（"B"）。所以先做「字母 ↔ 选项文本」双向规约再比较，
+/// 否则选对也会被判错。
+bool _isQuizCorrect(String picked, Map<String, dynamic> q) {
+  final ans = (q['answer'] as String? ?? '').trim();
+  if (ans.isEmpty) return true; // 无正确答案则不判，视为通过。
+  final options =
+      (q['options'] as List?)?.whereType<String>().toList() ?? const [];
+  const optLetters = ['A', 'B', 'C', 'D'];
+
+  String strip(String s) => s
+      .replaceFirst(RegExp(r'^\s*[A-Za-z]\s*[.、:：)）]\s*'), '')
+      .trim();
+
+  // picked → 规约文本：字母则映射回对应选项文本，否则原文。
+  String pickedText = picked.trim();
+  final pLetter = _optionLetter(picked) ??
+      (picked.trim().length == 1 ? picked.trim().toUpperCase() : null);
+  if (pLetter != null) {
+    final idx = optLetters.indexOf(pLetter);
+    if (idx >= 0 && idx < options.length) {
+      pickedText = options[idx];
+    }
+  }
+  // answer → 规约文本：字母则映射回对应选项文本（缺失 options 时保留字母）。
+  String aText = ans;
+  final aLetter = _optionLetter(ans) ??
+      (ans.length == 1 ? ans.toUpperCase() : null);
+  if (aLetter != null) {
+    final idx = optLetters.indexOf(aLetter);
+    if (idx >= 0 && idx < options.length) {
+      aText = options[idx];
+    }
+  }
+
+  final pBody = strip(pickedText);
+  final aBody = strip(aText);
+  if (pBody.isNotEmpty && aBody.isNotEmpty) {
+    if (pBody == aBody || pBody.contains(aBody) || aBody.contains(pBody)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/// 机械判对错：picked 是否命中正确答案 answer（字母优先，退文本包含）。
+/// 纯字符串匹配，永不误判——这正是判题交给 UI 而非 LLM 的价值。
+bool _isClarifyCorrect(String picked, String answer) {
+  final a = answer.trim();
+  if (a.isEmpty) return true; // 无正确答案则不判，视为通过。
+  final aLetter = _optionLetter(a) ?? (a.length == 1 ? a.toUpperCase() : null);
+  final pLetter = _optionLetter(picked);
+  if (aLetter != null && pLetter != null && aLetter == pLetter) return true;
+  String strip(String s) => s
+      .replaceFirst(RegExp(r'^\s*[A-Za-z]\s*[.、:：)）]\s*'), '')
+      .trim();
+  final pBody = strip(picked);
+  final aBody = strip(a);
+  if (pBody.isNotEmpty && aBody.isNotEmpty) {
+    if (pBody == aBody || pBody.contains(aBody) || aBody.contains(pBody)) {
+      return true;
+    }
+  }
+  return false;
 }
