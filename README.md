@@ -31,14 +31,15 @@
 - **技能**：`skills_list` / `skill_view` / `skill_manage`（SKILL.md frontmatter 解析、渐进式披露索引）
 - **委派与多代理**：`delegate_task`（最多 3 层子代理，快模型分级委派）/ `moa_discuss`（3 视角 × N 轮辩论 + 主持人综合）/ `delegate_to_department`（公司模式，CEO 调度部门）
 - **git**：基于 git2dart（嵌入式 libgit2），clone / init / status / add / commit / log / branch / diff / push / pull + `github_ci_logs`，认证自动读配置里的 GitHub PAT
-- **学习**：`study_list` / `study_question` / `study_record` / `study_profile_update`
+- **学习**：`study_list` / `study_question` / `study_record` / `study_profile_update` / `study_quiz`（批量题卡：左右滑动逐题作答，UI 机械判题，答完回填 agent 讲解；学习模式与通用助手均可出批量题）
 - **笔记库**：`notes_list` / `notes_search` / `notes_read` / `notes_write`（写后聊天侧出「打开笔记」深链）
 - **其他**：`vision_analyze`（独立视觉模型配置）、`read_doc`（格式探测 + 纯 Dart 解包 + 云端 /extract）、`md_to_docx` / `md_to_pdf` / `cloud_extract`、`cron_create/list/delete`（App 存活时触发）、用户脚本（知乎去登录 / 通用复制解锁 / 小红书）
 
 ### 学习模式（核心特色：聊天即学习主场）
 - `StudyEngine`：SQLite 事实层（subjects / knowledge_points / questions / practice_records），**掌握度 = 近 15 题正确率的 SQL 现场聚合**，零公式零 LLM
 - `StudyQuestionService`：7 阶段精炼出题管线（选点取材 → 雏形 → 加复杂度×1-4 轮 → 独立批判 → 回头 → 精炼 → 终审），token 有界；方法论沉淀在 `skills/question-design/SKILL.md`
-- 出题 → clarify 卡呈现 → **UI 机械判题**（不靠 LLM 比较字母）→ 落库 → agent 讲解；学生画像 `0_profile.md` 持久化
+- 出题 → `study_quiz` 批量题卡呈现（PageView 滑动，题目+选项同卡）→ **UI 机械判题**（不靠 LLM 比较字母）→ 落库 → agent 讲解；单题对话式出题仍走 clarify；学生画像 `0_profile.md` 持久化
+- `study_quiz` 判题/画像由 AI 声明：`grade`（是否机械判，开放题 false）/ `update_profile`（是否记画像）；题目来自 `study_question`（有 question_id）才落 `study_record`，手写题不落库
 
 ### 自进化（Continual Harness，refine 管线）
 - 任务完成后读轨迹（`trajectory.jsonl`），用主 LLM 提议**小步、带证据**的编辑（memory 增/替换、skill 新建、prompt note 新增）
