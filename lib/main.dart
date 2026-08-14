@@ -1896,9 +1896,9 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
               if (isWrongPicked)
                 Icon(Icons.close,
-                    size: 18, color: Theme.of(context).colorScheme.error),
+                    size: 18, color: Theme.of(context).colorScheme.error)
               else if (isCorrectOpt)
-                const Icon(Icons.check_circle, size: 18, color: Colors.green),
+                const Icon(Icons.check_circle, size: 18, color: Colors.green)
               else if (isSel)
                 Icon(Icons.check,
                     size: 18, color: Theme.of(context).colorScheme.primary),
