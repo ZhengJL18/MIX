@@ -4,8 +4,7 @@ export 'src/api/platform_file.dart';
 export 'src/file_picker.dart';
 // Platform-specific implementations are exported only for plugin registration.
 // These exports are hidden on Web to avoid dart:ffi and dart:io compatibility issues.
-export 'src/platform/linux/file_picker_linux.dart'
-    if (dart.library.js_interop) 'src/platform/web/file_picker_web.dart';
+// Linux 桌面版已停止维护（2026-08），不再导出 Linux 实现。
 export 'src/platform/macos/file_picker_macos.dart'
     if (dart.library.js_interop) 'src/platform/web/file_picker_web.dart';
 export 'src/platform/windows/file_picker_windows.dart'
