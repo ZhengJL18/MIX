@@ -244,6 +244,13 @@ Map<String, ToolsetDef> toolsetDefs = {
         '(multi-stage refined pipeline)',
     tools: ['study_list', 'study_question'],
   ),
+  'quiz': ToolsetDef(
+    description:
+        'Interactive batch quiz cards: present multiple questions at once '
+        '(swipe cards), mechanically grade answers in UI, and optionally '
+        'record results to the student profile',
+    tools: ['study_quiz'],
+  ),
   'notes': ToolsetDef(
     description:
         'Notes library tools: list/search/read/write the notes library '

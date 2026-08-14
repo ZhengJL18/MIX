@@ -27,6 +27,16 @@ Future<String> Function({
   String? minorCause,
 })? studyRecordHandler;
 
+/// 批量题卡执行器：把题目 JSON 交给 UI 渲染成可滑动题卡，返回用户逐题作答。
+/// [grade] 为 true 时 UI 机械判分，返回带对错的结果；[updateProfile] 为 true
+/// 时作答观察写入学生画像（由 UI 侧在拿到结果后触发）。
+Future<String> Function(
+  List<Map<String, dynamic>> questions, {
+  required bool grade,
+  bool updateProfile,
+  String? topic,
+})? studyQuizHandler;
+
 /// study_record 工具 handler：落库本次作答（对/错）。
 Future<String> _handleStudyRecord(Map<String, dynamic> args,
     [Map<String, dynamic>? kwargs]) async {
@@ -102,6 +112,36 @@ Future<String> _handleStudyQuestion(Map<String, dynamic> args,
     );
   } catch (e) {
     return toolError('study_question failed: $e');
+  }
+}
+
+/// study_quiz 工具 handler：把批量题目交给 UI 渲染成滑动题卡。
+Future<String> _handleStudyQuiz(Map<String, dynamic> args,
+    [Map<String, dynamic>? kwargs]) async {
+  final handler = studyQuizHandler;
+  if (handler == null) {
+    return toolError('study_quiz: 界面未提供题卡回调');
+  }
+  final rawQuestions = args['questions'];
+  if (rawQuestions is! List || rawQuestions.isEmpty) {
+    return toolError('study_quiz: 缺少题目列表 questions');
+  }
+  final questions = rawQuestions.whereType<Map<String, dynamic>>().toList();
+  if (questions.isEmpty) {
+    return toolError('study_quiz: questions 为空');
+  }
+  final grade = args['grade'] == true;
+  final updateProfile = args['update_profile'] == true;
+  final topic = args['topic'] as String?;
+  try {
+    return await handler(
+      questions,
+      grade: grade,
+      updateProfile: updateProfile,
+      topic: topic,
+    );
+  } catch (e) {
+    return toolError('study_quiz failed: $e');
   }
 }
 
@@ -191,6 +231,69 @@ const Map<String, dynamic> _studyQuestionSchema = {
   },
 };
 
+const Map<String, dynamic> _studyQuizSchema = {
+  'name': 'study_quiz',
+  'description':
+      'Present a batch of practice questions as interactive swipe cards '
+      '(question and options on one card). The user answers each card; with '
+      'grade=true the UI mechanically grades each answer and returns '
+      'per-question results. Use this instead of clarify for QUIZZING. For a '
+      'single quick interactive choice you may still use clarify with an '
+      'answer.',
+  'parameters': {
+    'type': 'object',
+    'properties': {
+      'questions': {
+        'type': 'array',
+        'items': {
+          'type': 'object',
+          'properties': {
+            'id': {
+              'type': 'string',
+              'description': 'Optional question id (string), useful when the question came from study_question',
+            },
+            'question': {
+              'type': 'string',
+              'description': 'The question stem',
+            },
+            'options': {
+              'type': 'array',
+              'items': {'type': 'string'},
+              'description': '2-4 answer options',
+            },
+            'answer': {
+              'type': 'string',
+              'description':
+                  'Correct answer (letter like "B" or option text). Required when grade=true.',
+            },
+            'explanation': {
+              'type': 'string',
+              'description': 'Brief explanation shown after answering',
+            },
+          },
+          'required': ['question', 'options'],
+        },
+        'description': 'The questions to present as swipe cards',
+      },
+      'grade': {
+        'type': 'boolean',
+        'description':
+            'Whether to mechanically grade answers in the UI. Set false for open-ended questions.',
+      },
+      'update_profile': {
+        'type': 'boolean',
+        'description':
+            'Whether to write answer results into the student profile after the quiz.',
+      },
+      'topic': {
+        'type': 'string',
+        'description': 'Optional topic label for the quiz',
+      },
+    },
+    'required': ['questions'],
+  },
+};
+
 /// 注册学习工具。
 void registerStudyTools() {
   registry.register(
@@ -200,6 +303,16 @@ void registerStudyTools() {
     handler: _handleStudyList,
     isAsync: true,
     emoji: '📚',
+  );
+  registry.register(
+    name: 'study_quiz',
+    toolset: 'quiz',
+    schema: _studyQuizSchema,
+    handler: _handleStudyQuiz,
+    isAsync: true,
+    emoji: '🃏',
+    // 批量题卡结果（逐题作答）有界放大。
+    maxResultSizeChars: 16000,
   );
   registry.register(
     name: 'study_question',

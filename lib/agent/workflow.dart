@@ -87,10 +87,11 @@ const List<AgentWorkflow> builtinWorkflows = [
     description: '全能 agent：文件/终端/git/上网/记忆/技能',
     systemPrompt: '你是 MIX，一个通用的 AI agent，具备文件读写、git、上网、'
         '记忆、技能等能力。可以操作 App 文档目录里的文件、改代码、查资料。'
-        '对不确定的任务先探查再动手。用中文回答。',
+        '对不确定的任务先探查再动手。用户要求出题/刷题/考考我时，用 '
+        'study_quiz 工具呈现批量题卡（一次多题，可机械判分）。用中文回答。',
     toolsets: [
       'file', 'web', 'memory', 'todo', 'skills', 'session_search', 'git',
-      'clarify', 'delegate', 'moa', 'cron', 'vision', 'notes',
+      'clarify', 'delegate', 'moa', 'cron', 'vision', 'notes', 'quiz',
     ],
     planGate: false,
     autoDelegate: true,
@@ -121,19 +122,18 @@ const List<AgentWorkflow> builtinWorkflows = [
         '工作流：\n'
         '1) 学生说"出几道X的题"→ 先调 study_list 宣告回合（"这轮 N 题，'
         '主练 X，上次正确率 Y%"），再调 study_question 出题。\n'
-        '2) study_question 返回题目 JSON（含 question/options/answer/'
-        'explanation/question_id）。出题后调用 clarify 工具把题目呈现给学生：'
-        'question 传题干原文，choices 传 ["A. <选项1>", "B. <选项2>", '
-        '"C. <选项3>", "D. <选项4>"]（带字母前缀），multi_select 传 false，'
-        'answer 传正确答案字母（如 "B"，与 choices 的字母前缀一致）。'
-        'clarify 会返回带「机械判定：回答正确 / 回答错误」标记的结果——判题由 '
-        '界面机械完成，你直接读这个标记，绝不要自己比较字母，也绝不要用 '
-        '```json 代码块输出题目。\n'
-        '3) 拿到 clarify 返回后：返回里含「回答正确」就是 correct=true，含'
-        '「回答错误」就是 correct=false。立刻调 study_record(question_id, '
-        'correct) 落库作答记录（掌握度计算的依据，必须在讲解之前调）。然后'
-        '流式讲解：答对一句带过（省 token），答错讲清错因、正确思路、干扰项'
-        '为什么错。\n'
+        '2) 出题呈现用 study_quiz 工具（一次可传多题，UI 渲染成可滑动题卡，'
+        '题目和选项在同一张卡上）。题目内容可以直接写，也可以用 study_question '
+        '生成后传入。每题结构：question（题干）、options（2-4 个选项，不带'
+        '字母前缀）、answer（正确选项，与选项文本一致）、explanation（简短解析）。'
+        '选择题设 grade=true（UI 机械判分）；开放题（无选项）设 grade=false，'
+        '由你讲解点评。update_profile 在本次作答值得记入画像时设 true。\n'
+        '3) study_quiz 返回逐题作答结果（含「机械判定：回答正确 / 回答错误」'
+        '标记——判题由界面机械完成，你直接读标记，绝不要自己比较字母）。'
+        '然后流式讲解：答对一句带过（省 token），答错讲清错因、正确思路、'
+        '干扰项为什么错，开放题点评思路与不足。题目来自 study_question（有'
+        '真实 question_id）时调 study_record 落库；自己手写的题目没有 '
+        'question_id，不落库，靠讲解和 study_profile_update 沉淀。\n'
         '4) 讲解完提议下一题，但保持题间零废话，练习密度优先。\n'
         '5) 连续几题后做回合小结："N 题对 M，弱项在…，建议…"。\n'
         '6) 学生追问概念、问"为什么选B"、要求举反例 → 展开讲（开放题天然支持）。\n'
@@ -141,7 +141,7 @@ const List<AgentWorkflow> builtinWorkflows = [
         '错误、明显的进步），调用 study_profile_update 记进学生画像，'
         '画像会用于后续出题针对性。不需要"做错才记"，有值得记的就记。\n'
         '用中文。',
-    toolsets: ['study', 'clarify', 'memory', 'file', 'session_search', 'notes'],
+    toolsets: ['study', 'quiz', 'clarify', 'memory', 'file', 'session_search', 'notes'],
     planGate: false,
     autoDelegate: false,
     maxSteps: 120,

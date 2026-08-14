@@ -159,6 +159,15 @@ class _ChatMessage {
   bool? clarifyCorrect; // 机械判结果（null=未判）。
   Completer<String>? clarifyCompleter;
   Set<String> clarifySelected = {}; // 多选暂存（内联卡点选状态）。
+  // quiz 专用：批量滑动题卡（题目+选项同卡，机械判题）。
+  // 非 final：只有 quiz 消息会赋值，其余消息保持默认（避免污染其他构造函数）。
+  List<Map<String, dynamic>> quizQuestions = const [];
+  bool quizGrade = false;
+  bool quizUpdateProfile = false;
+  String? quizTopic;
+  List<String?> quizPicked = const []; // 每题用户选择（null=未答）。
+  List<bool?> quizCorrect = const []; // 每题机械判分（null=未判/开放题）。
+  Completer<String>? quizCompleter;
   // update 专用：内联更新卡（源选择 + 立即更新/稍后，取缔弹窗）。
   List<UpdateInfo> updateSources = const [];
   int updateSelectedIdx = 0;
@@ -311,6 +320,39 @@ class _ChatMessage {
     clarifyMultiSelect = multiSelect;
     clarifyAnswer = answer;
     clarifyCompleter = completer;
+  }
+  _ChatMessage.quiz({
+    required List<Map<String, dynamic>> questions,
+    required bool grade,
+    bool updateProfile = false,
+    String? topic,
+    required Completer<String> completer,
+  })  : role = 'quiz',
+        text = null,
+        toolName = null,
+        toolStatus = null,
+        discussionRunning = false,
+        discussionRound = null,
+        discussionTotalRounds = null,
+        discussionPerspective = null,
+        discussionPerspectives = const [],
+        discussionSummary = null,
+        refineProposals = const [],
+        refineApplied = false,
+        refineIgnored = false,
+        studyQuestionId = null,
+        studyQuestion = null,
+        studyOptions = const [],
+        studyAnswer = null,
+        studyExplanation = null,
+        studyCorrect = null {
+    quizQuestions = questions;
+    quizGrade = grade;
+    quizUpdateProfile = updateProfile;
+    quizTopic = topic;
+    quizCompleter = completer;
+    quizPicked = List<String?>.filled(questions.length, null);
+    quizCorrect = List<bool?>.filled(questions.length, null);
   }
   _ChatMessage.update({required List<UpdateInfo> sources})
       : role = 'update',
@@ -501,6 +543,7 @@ class _ChatScreenState extends State<ChatScreen> {
     studyQuestionHandler = _studyQuestion;
     studyProfileUpdateHandler = _studyProfileUpdate;
     studyRecordHandler = _studyRecord;
+    studyQuizHandler = _showQuiz;
     // 对话历史页「继续聊天」→ 切换到指定会话并加载历史。
     resumeSessionHandler = _resumeSession;
     // 设置页「检查更新」→ 复用聊天页的检查逻辑。
@@ -1279,6 +1322,75 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _forceScrollToBottom();
     return completer.future;
+  }
+
+  /// study_quiz 回调：把批量题目渲染成滑动题卡（题目+选项同卡），用户
+  /// 逐题作答，全部答完 complete Future → 工具把逐题结果回填给 agent。
+  Future<String> _showQuiz(
+    List<Map<String, dynamic>> questions, {
+    required bool grade,
+    bool updateProfile = false,
+    String? topic,
+  }) async {
+    final completer = Completer<String>();
+    setState(() {
+      _messages.add(_ChatMessage.quiz(
+        questions: questions,
+        grade: grade,
+        updateProfile: updateProfile,
+        topic: topic,
+        completer: completer,
+      ));
+    });
+    _forceScrollToBottom();
+    return completer.future;
+  }
+
+  /// 用户作答某一题（选择题点选 / 开放题提交）。机械判分（grade=true 时），
+  /// 全部答完后 complete completer 把逐题结果回填给 agent。
+  void _onQuizAnswer(_ChatMessage m, int index, String picked) {
+    if (m.quizCompleter == null || m.quizCompleter!.isCompleted) return;
+    if (index < 0 || index >= m.quizQuestions.length) return;
+    if (m.quizPicked[index] != null) return; // 已作答，忽略重复点选。
+    final q = m.quizQuestions[index];
+    setState(() {
+      m.quizPicked[index] = picked;
+      if (m.quizGrade) {
+        final ans = (q['answer'] as String? ?? '').trim();
+        m.quizCorrect[index] =
+            ans.isEmpty ? true : _isClarifyCorrect(picked, ans);
+      } else {
+        m.quizCorrect[index] = null; // 开放题不机械判。
+      }
+    });
+    // 全部答完 → 汇总并 complete。
+    final done = m.quizPicked.every((p) => p != null);
+    if (done) {
+      final buf = StringBuffer();
+      buf.writeln('用户完成题卡作答（共 ${m.quizQuestions.length} 题）');
+      var correct = 0;
+      for (var i = 0; i < m.quizQuestions.length; i++) {
+        final q = m.quizQuestions[i];
+        final picked = m.quizPicked[i]!;
+        final isCorrect = m.quizCorrect[i];
+        if (isCorrect == true) correct++;
+        buf.writeln('第 ${i + 1} 题：用户选择「$picked」');
+        if (isCorrect == true) {
+          buf.writeln('→ 机械判定：回答正确');
+        } else if (isCorrect == false) {
+          buf.writeln('→ 机械判定：回答错误（正确答案「${q['answer']}」）');
+        } else {
+          buf.writeln('→ 未判分（开放题，请讲解/点评）');
+        }
+      }
+      if (m.quizGrade) {
+        buf.writeln('正确率：$correct/${m.quizQuestions.length}');
+      }
+      if (m.quizUpdateProfile) {
+        buf.writeln('（本批作答已标记写入学生画像，可调用 study_profile_update 记录）');
+      }
+      m.quizCompleter!.complete(buf.toString());
+    }
   }
 
   /// 只读工具集（plan 模式用）：过滤掉写操作，防 plan 阶段误改文件。
@@ -2457,6 +2569,11 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       case 'clarify':
         return _buildClarifyCard(m);
+      case 'quiz':
+        return _QuizCardsView(
+          message: m,
+          onAnswer: (index, picked) => _onQuizAnswer(m, index, picked),
+        );
       case 'update':
         return _buildUpdateCard(m);
       case 'study':
@@ -2657,6 +2774,362 @@ class _ChatScreenState extends State<ChatScreen> {
       default:
         return const SizedBox.shrink();
     }
+  }
+}
+
+/// 批量题卡视图：PageView 左右滑动，一页一张卡（题目+选项同卡），
+/// 逐题作答、机械判题，全部答完显示汇总页。
+class _QuizCardsView extends StatefulWidget {
+  const _QuizCardsView({required this.message, required this.onAnswer});
+
+  final _ChatMessage message;
+  final void Function(int index, String picked) onAnswer;
+
+  @override
+  State<_QuizCardsView> createState() => _QuizCardsViewState();
+}
+
+class _QuizCardsViewState extends State<_QuizCardsView> {
+  late final PageController _controller = PageController();
+  int _page = 0;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final m = widget.message;
+    final questions = m.quizQuestions;
+    final allDone = m.quizPicked.every((p) => p != null);
+    // 全部答完 → 末尾多一页汇总。
+    final pageCount = allDone ? questions.length + 1 : questions.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (m.quizTopic != null && m.quizTopic!.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              '📚 ${m.quizTopic}',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelMedium
+                  ?.copyWith(color: Theme.of(context).colorScheme.primary),
+            ),
+          ),
+        ],
+        SizedBox(
+          height: _cardHeight(context),
+          child: PageView.builder(
+            controller: _controller,
+            itemCount: pageCount,
+            onPageChanged: (i) => setState(() => _page = i),
+            itemBuilder: (context, i) {
+              if (i >= questions.length) {
+                return _buildSummaryCard(m);
+              }
+              return _buildQuestionCard(m, i);
+            },
+          ),
+        ),
+        const SizedBox(height: 6),
+        // 页码指示器。
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            for (var i = 0; i < pageCount; i++)
+              Container(
+                width: 6,
+                height: 6,
+                margin: const EdgeInsets.symmetric(horizontal: 3),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: i == _page
+                      ? Theme.of(context).colorScheme.primary
+                      : Theme.of(context).dividerColor,
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  double _cardHeight(BuildContext context) {
+    // 手机竖屏：按宽度自适应，给选项留空间；宽屏固定 300。
+    final w = MediaQuery.of(context).size.width;
+    return w < 600 ? w * 0.62 : 300;
+  }
+
+  Widget _buildQuestionCard(_ChatMessage m, int index) {
+    final q = m.quizQuestions[index];
+    final question = q['question'] as String? ?? '';
+    final options = (q['options'] as List?)?.whereType<String>().toList() ?? const [];
+    final answer = (q['answer'] as String? ?? '').trim();
+    final picked = m.quizPicked[index];
+    final answered = picked != null;
+    final isCorrect = m.quizCorrect[index];
+    final optLetters = ['A', 'B', 'C', 'D'];
+    final isOpen = options.isEmpty; // 开放题：文本输入。
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border.all(color: Theme.of(context).dividerColor),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('第 ${index + 1} 题',
+                  style: Theme.of(context).textTheme.labelMedium),
+              const Spacer(),
+              if (answered) ...[
+                if (isCorrect == true)
+                  Text('✅ 正确',
+                      style: TextStyle(
+                          color: Colors.green.shade700,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12))
+                else if (isCorrect == false)
+                  Text('❌ 错误',
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12)),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(question,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
+                  if (isOpen)
+                    _OpenAnswerField(
+                      answered: answered,
+                      picked: picked,
+                      onSubmit: (text) => widget.onAnswer(index, text),
+                    )
+                  else
+                    for (var i = 0; i < options.length; i++)
+                      _QuizOptionButton(
+                        letter: optLetters[i],
+                        option: options[i],
+                        picked: picked,
+                        isCorrect: isCorrect,
+                        answer: answer,
+                        enabled: !answered,
+                        onTap: () => widget.onAnswer(index, optLetters[i]),
+                      ),
+                  if (answered && q['explanation'] != null) ...[
+                    const SizedBox(height: 10),
+                    Text(q['explanation'] as String? ?? '',
+                        style: Theme.of(context).textTheme.bodySmall),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryCard(_ChatMessage m) {
+    final questions = m.quizQuestions;
+    var correct = 0;
+    final wrongIdx = <int>[];
+    for (var i = 0; i < questions.length; i++) {
+      if (m.quizCorrect[i] == true) {
+        correct++;
+      } else if (m.quizCorrect[i] == false) {
+        wrongIdx.add(i);
+      }
+    }
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border.all(color: Theme.of(context).colorScheme.primary),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text('🎯 作答完成',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 10),
+          if (m.quizGrade)
+            Text('正确率：$correct/${questions.length}',
+                style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(height: 6),
+          if (wrongIdx.isNotEmpty)
+            Text('错题：${wrongIdx.map((i) => '第 ${i + 1} 题').join('、')}',
+                style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(height: 12),
+          Text('MIX 正在讲解错题…', style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+    );
+  }
+}
+
+/// 选择题选项按钮（复用 clarify 卡的对错配色）。
+class _QuizOptionButton extends StatelessWidget {
+  const _QuizOptionButton({
+    required this.letter,
+    required this.option,
+    required this.picked,
+    required this.isCorrect,
+    required this.answer,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final String letter;
+  final String option;
+  final String? picked;
+  final bool? isCorrect;
+  final String answer;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final answered = picked != null;
+    final thisPicked = picked == letter;
+    final thisAnswer = answer.isNotEmpty && (letter == answer || option == answer);
+
+    final Color bg;
+    final Color bd;
+    if (answered && thisPicked && isCorrect == false) {
+      bg = Theme.of(context).colorScheme.error.withValues(alpha: 0.15);
+      bd = Theme.of(context).colorScheme.error;
+    } else if (answered && thisAnswer) {
+      bg = Colors.green.withValues(alpha: 0.15);
+      bd = Colors.green;
+    } else {
+      bg = Theme.of(context).colorScheme.surfaceContainerHighest;
+      bd = Theme.of(context).dividerColor;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: bg,
+        shape: RoundedRectangleBorder(
+          side: BorderSide(color: bd),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: enabled ? onTap : null,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
+              children: [
+                Text(letter,
+                    style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: Theme.of(context).colorScheme.primary)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(option,
+                      style: Theme.of(context).textTheme.bodyMedium),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 开放题作答输入（无选项时）。
+class _OpenAnswerField extends StatefulWidget {
+  const _OpenAnswerField({
+    required this.answered,
+    required this.picked,
+    required this.onSubmit,
+  });
+
+  final bool answered;
+  final String? picked;
+  final void Function(String text) onSubmit;
+
+  @override
+  State<_OpenAnswerField> createState() => _OpenAnswerFieldState();
+}
+
+class _OpenAnswerFieldState extends State<_OpenAnswerField> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.answered) {
+      return Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text('你的回答：${widget.picked ?? ''}',
+            style: Theme.of(context).textTheme.bodyMedium),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _controller,
+          maxLines: 3,
+          minLines: 2,
+          decoration: const InputDecoration(
+            hintText: '输入你的回答…',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerRight,
+          child: FilledButton(
+            onPressed: () {
+              final text = _controller.text.trim();
+              if (text.isEmpty) return;
+              widget.onSubmit(text);
+            },
+            child: const Text('提交'),
+          ),
+        ),
+      ],
+    );
   }
 }
 
