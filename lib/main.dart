@@ -1356,9 +1356,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       m.quizPicked[index] = picked;
       if (m.quizGrade) {
-        final ans = (q['answer'] as String? ?? '').trim();
-        m.quizCorrect[index] =
-            ans.isEmpty ? true : _isClarifyCorrect(picked, ans);
+        m.quizCorrect[index] = _isQuizCorrect(picked, q);
       } else {
         m.quizCorrect[index] = null; // 开放题不机械判。
       }
@@ -1896,6 +1894,53 @@ class _ChatScreenState extends State<ChatScreen> {
   String? _optionLetter(String opt) {
     final m = RegExp(r'^\s*([A-Za-z])\s*[.、:：)）]').firstMatch(opt);
     return m?.group(1)?.toUpperCase();
+  }
+
+  /// study_quiz 判对错：picked（字母或文本）是否命中正确答案。
+  ///
+  /// 与 clarify 不同：quiz 的 answer 协议是**选项文本**（"与选项文本一致"），
+  /// 而点选项传的是字母（"B"）。所以先做「字母 ↔ 选项文本」双向规约再比较，
+  /// 否则选对也会被判错。
+  bool _isQuizCorrect(String picked, Map<String, dynamic> q) {
+    final ans = (q['answer'] as String? ?? '').trim();
+    if (ans.isEmpty) return true; // 无正确答案则不判，视为通过。
+    final options =
+        (q['options'] as List?)?.whereType<String>().toList() ?? const [];
+    const optLetters = ['A', 'B', 'C', 'D'];
+
+    String strip(String s) => s
+        .replaceFirst(RegExp(r'^\s*[A-Za-z]\s*[.、:：)）]\s*'), '')
+        .trim();
+
+    // picked → 规约文本：字母则映射回对应选项文本，否则原文。
+    String pickedText = picked.trim();
+    final pLetter = _optionLetter(picked) ??
+        (picked.trim().length == 1 ? picked.trim().toUpperCase() : null);
+    if (pLetter != null) {
+      final idx = optLetters.indexOf(pLetter);
+      if (idx >= 0 && idx < options.length) {
+        pickedText = options[idx];
+      }
+    }
+    // answer → 规约文本：字母则映射回对应选项文本（缺失 options 时保留字母）。
+    String aText = ans;
+    final aLetter = _optionLetter(ans) ??
+        (ans.length == 1 ? ans.toUpperCase() : null);
+    if (aLetter != null) {
+      final idx = optLetters.indexOf(aLetter);
+      if (idx >= 0 && idx < options.length) {
+        aText = options[idx];
+      }
+    }
+
+    final pBody = strip(pickedText);
+    final aBody = strip(aText);
+    if (pBody.isNotEmpty && aBody.isNotEmpty) {
+      if (pBody == aBody || pBody.contains(aBody) || aBody.contains(pBody)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// 机械判对错：picked 是否命中正确答案 answer（字母优先，退文本包含）。
@@ -2860,16 +2905,72 @@ class _QuizCardsViewState extends State<_QuizCardsView> {
   }
 
   double _cardHeight(BuildContext context) {
-    // 手机竖屏：按宽度自适应，给选项留空间；宽屏固定 300。
+    final m = widget.message;
+    final questions = m.quizQuestions;
     final w = MediaQuery.of(context).size.width;
-    return w < 600 ? w * 0.62 : 300;
+    final screenH = MediaQuery.of(context).size.height;
+
+    // 手机竖屏基准：宽度比例；宽屏固定 300。
+    final base = w < 600 ? w * 0.62 : 300;
+
+    // 按内容估算所需高度（取所有题的最大值），尽量一屏放下减少滑动。
+    // 估算用行数 × 行高 + 固定结构（题号行/间距/页码），超出上限仍可滚动。
+    double estimate(Map<String, dynamic> q, int index) {
+      final question = (q['question'] as String? ?? '').trim();
+      final options =
+          (q['options'] as List?)?.whereType<String>().toList() ?? const [];
+      final explanation = (q['explanation'] as String? ?? '').trim();
+      final answered = m.quizPicked[index] != null;
+
+      // 可用行宽内的估算字符数（中文/全角按 1，半角按 0.6，粗估）。
+      final usableW = (w - 56).clamp(120.0, 900.0);
+      int charsPerLine(String s) {
+        var units = 0.0;
+        for (final ch in s.runes) {
+          units += ch > 0x2E7F ? 1.0 : 0.6; // CJK/全角按 1 行单位
+        }
+        return (usableW / 14).floor().clamp(8, 60); // 14px 每单位粗估
+      }
+
+      int lines(String s) {
+        final cpl = charsPerLine(s);
+        if (cpl <= 0) return 0;
+        return (s.length / cpl).ceil();
+      }
+
+      var h = 24.0; // 题号行 + 间距
+      h += lines(question) * 22.0; // 题干（MIXMarkdown 行高粗估）
+      h += 12; // 题干与选项间距
+      if (options.isEmpty) {
+        // 开放题：输入框 + 提交按钮 ≈ 90。
+        h += answered ? 40 : 96;
+      } else {
+        for (final o in options) {
+          h += lines(o) * 20.0 + 34; // 每选项：文本行 + 按钮 padding/边距
+        }
+        // 自定义答案输入框（未作答时）。
+        if (!answered) h += 48;
+      }
+      if (answered && explanation.isNotEmpty) {
+        h += 10 + lines(explanation) * 20.0;
+      }
+      return h;
+    }
+
+    var needed = base;
+    for (var i = 0; i < questions.length; i++) {
+      final e = estimate(questions[i], i);
+      if (e > needed) needed = e;
+    }
+    // 上限：屏幕 82% 高度内（超长内容仍可滑动）；下限：基准高度。
+    final cap = (screenH * 0.82).clamp(base, screenH * 0.92);
+    return needed.clamp(base, cap);
   }
 
   Widget _buildQuestionCard(_ChatMessage m, int index) {
     final q = m.quizQuestions[index];
     final question = q['question'] as String? ?? '';
     final options = (q['options'] as List?)?.whereType<String>().toList() ?? const [];
-    final answer = (q['answer'] as String? ?? '').trim();
     final picked = m.quizPicked[index];
     final answered = picked != null;
     final isCorrect = m.quizCorrect[index];
@@ -2913,11 +3014,10 @@ class _QuizCardsViewState extends State<_QuizCardsView> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(question,
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyMedium
-                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  MIXMarkdown(
+                    data: question,
+                    selectable: false,
+                  ),
                   const SizedBox(height: 12),
                   if (isOpen)
                     _OpenAnswerField(
@@ -2925,21 +3025,30 @@ class _QuizCardsViewState extends State<_QuizCardsView> {
                       picked: picked,
                       onSubmit: (text) => widget.onAnswer(index, text),
                     )
-                  else
+                  else ...[
                     for (var i = 0; i < options.length; i++)
                       _QuizOptionButton(
                         letter: optLetters[i],
                         option: options[i],
                         picked: picked,
                         isCorrect: isCorrect,
-                        answer: answer,
+                        isAnswerOption: _isQuizCorrect(optLetters[i], q),
                         enabled: !answered,
                         onTap: () => widget.onAnswer(index, optLetters[i]),
                       ),
+                    if (answered && picked != null && !optLetters.contains(picked))
+                      _CustomAnswerShown(picked: picked, isCorrect: isCorrect)
+                    else if (!answered)
+                      _CustomAnswerField(
+                        onSubmit: (text) => widget.onAnswer(index, text),
+                      ),
+                  ],
                   if (answered && q['explanation'] != null) ...[
                     const SizedBox(height: 10),
-                    Text(q['explanation'] as String? ?? '',
-                        style: Theme.of(context).textTheme.bodySmall),
+                    MIXMarkdown(
+                      data: q['explanation'] as String? ?? '',
+                      selectable: false,
+                    ),
                   ],
                 ],
               ),
@@ -3000,7 +3109,7 @@ class _QuizOptionButton extends StatelessWidget {
     required this.option,
     required this.picked,
     required this.isCorrect,
-    required this.answer,
+    required this.isAnswerOption,
     required this.enabled,
     required this.onTap,
   });
@@ -3009,7 +3118,7 @@ class _QuizOptionButton extends StatelessWidget {
   final String option;
   final String? picked;
   final bool? isCorrect;
-  final String answer;
+  final bool isAnswerOption;
   final bool enabled;
   final VoidCallback onTap;
 
@@ -3017,14 +3126,13 @@ class _QuizOptionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final answered = picked != null;
     final thisPicked = picked == letter;
-    final thisAnswer = answer.isNotEmpty && (letter == answer || option == answer);
 
     final Color bg;
     final Color bd;
     if (answered && thisPicked && isCorrect == false) {
       bg = Theme.of(context).colorScheme.error.withValues(alpha: 0.15);
       bd = Theme.of(context).colorScheme.error;
-    } else if (answered && thisAnswer) {
+    } else if (answered && isAnswerOption) {
       bg = Colors.green.withValues(alpha: 0.15);
       bd = Colors.green;
     } else {
@@ -3129,6 +3237,109 @@ class _OpenAnswerFieldState extends State<_OpenAnswerField> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 选择题卡里的自定义答案入口：选项都不合适时，手动输入作答。
+class _CustomAnswerField extends StatefulWidget {
+  const _CustomAnswerField({required this.onSubmit});
+
+  final void Function(String text) onSubmit;
+
+  @override
+  State<_CustomAnswerField> createState() => _CustomAnswerFieldState();
+}
+
+class _CustomAnswerFieldState extends State<_CustomAnswerField> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              maxLines: 1,
+              textInputAction: TextInputAction.done,
+              onSubmitted: _submit,
+              decoration: InputDecoration(
+                hintText: '都不对？输入你的答案…',
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 8),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton.tonal(
+            onPressed: _submit,
+            child: const Text('作答'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _submit() {
+    final text = _controller.text.trim();
+    if (text.isEmpty) return;
+    widget.onSubmit(text);
+  }
+}
+
+/// 已用自定义答案作答后的展示块（显示用户输入 + 对错色）。
+class _CustomAnswerShown extends StatelessWidget {
+  const _CustomAnswerShown({required this.picked, required this.isCorrect});
+
+  final String picked;
+  final bool? isCorrect;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color color;
+    final String tag;
+    if (isCorrect == true) {
+      color = Colors.green.shade700;
+      tag = '✅ 回答正确';
+    } else if (isCorrect == false) {
+      color = Theme.of(context).colorScheme.error;
+      tag = '❌ 回答错误';
+    } else {
+      color = Theme.of(context).colorScheme.primary;
+      tag = '已作答';
+    }
+    return Container(
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text('你的回答：$picked',
+                style: Theme.of(context).textTheme.bodyMedium),
+          ),
+          Text(tag,
+              style: TextStyle(
+                  color: color, fontWeight: FontWeight.w600, fontSize: 12)),
+        ],
+      ),
     );
   }
 }

@@ -34,6 +34,8 @@
 ### 学习工具（study）
 - `study_list` / `study_question` / `study_record` / `study_profile_update`。
 - **`study_quiz`（2026-08-14 新增，批量题卡）**：一次多题 → UI 渲染 PageView 滑动题卡（题目+选项同卡）→ 逐题作答、UI 机械判题（grade=true，对绿错红+简析）→ 答完 complete 回填 agent → agent 讲解错题；开放题 grade=false 由 AI 点评。`update_profile` 由 AI 出题时声明；有真实 question_id 的题才落 `study_record`，手写题不落库。已接入学习模式与通用助手（daily）工作流，`toolsets.dart` 新增 `quiz` 工具集。设计文档见 `notes/规划/MIX批量题卡-设计与落地.md`。**遗留：真机验证未做（daily「出 10 题」→ 滑动 → 判题 → 讲解）。**
+  - **踩坑（8-14 修）**：判题不能复用 clarify 的 `_isClarifyCorrect`——clarify 的 answer 是字母（"B"），quiz 的 answer 是**选项文本**，点选项传字母会选对判错。专用 `_isQuizCorrect(picked, q)`：字母↔选项文本双向规约再匹配，判题与选项高亮共用。
+  - 题卡内容走 `MIXMarkdown`（LaTeX 渲染）；选择题卡底部支持自定义答案输入（`_CustomAnswerField`）；卡片高度按内容估算自适应（`_cardHeight`），尽量一屏放下 4 选项。
 
 ### 对话体验
 - Markdown 渲染；LaTeX 公式（行内 `$...$`、块 `$$...$$`，支持矩阵/方程组/行列式/下标/分数等）。
