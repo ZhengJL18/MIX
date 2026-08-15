@@ -68,6 +68,11 @@ coding（先计划后执行，plan 模式）/ research / daily / company（CEO +
 - 「所有文件访问」权限引导（原生 `ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION` 专用页）
 - 5 套内置主题（青绿/靛蓝/暖橙/紫罗兰/玫瑰）+ 明暗切换
 
+### 阻塞型重活隔离（isolate）
+- **原则**：所有同步 CPU 密集 / 文件 IO 重活（git 全家、加密解密、zip 打包、tar 解压解析、大 JSON 解析）一律丢后台 isolate（`Isolate.run`）执行，主 isolate 只收结果，杜绝「下载 / git clone 时 UI 卡死」。
+- 已隔离：git 工具集全部 10 个操作（git_tools）、保险柜加密/解密（vault_screen）、md→docx zip 打包（convert_tools）、教材导入解压解析（textbook_importer）、出题 JSON 提取（study_question_service）。
+- 约束：isolate 内不能碰平台通道 / SharedPreferences / UI；跨 isolate 只传可发送的 primitive，进度回调留在主 isolate 侧按阶段推进。
+
 ## 项目结构
 
 ```

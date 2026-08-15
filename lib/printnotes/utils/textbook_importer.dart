@@ -4,6 +4,7 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
@@ -116,28 +117,64 @@ Future<String> importTextbook(
   }
   onProgress?.call(0.4);
 
-  // 解压：gzip 用 dart:io 原生流式管道解到中间 tar 文件（不整包读内存），
-  // 再用 InputFileStream + TarDecoder.decodeStream 懒加载解析——文件内容
-  // 只在访问时按需从磁盘读，处理完立即 clear 释放，内存占用恒定。
-  // （旧实现 readAsBytes + GZipDecoder().decodeBytes + TarDecoder().decodeBytes
-  //   会把整个包与全部文件内容驻留内存，大教材在低内存设备上直接 OOM/卡死。）
-  final tarTmp = File('${libDir.path}/.tmp_$targetName.tar');
+  // 解压 + TarDecoder 解析 + 逐文件解码写盘是 CPU 密集活（大教材几十 MB、
+  // 上百个 ipynb JSON 解析），丢后台 isolate 执行，主 isolate 只收结果，
+  // 避免导入过程中 UI 卡死。进度在 isolate 外按阶段推进：0.55 = 解压解析中，
+  // 完成后 1.0。（原 0.6 细分提示点被合并，无实际影响。）
+  onProgress?.call(0.55);
+  final imported = await Isolate.run(() => _extractAndWrite(
+        tmpPath: tmp.path,
+        tarTmpPath: '${libDir.path}/.tmp_$targetName.tar',
+        targetDirPath: targetDir.path,
+        name: src.name,
+        subject: src.subject,
+        description: src.description,
+        sourceUrl: src.sourceUrl,
+        license: src.license,
+        subdir: src.subdir,
+        isIpynb: src.isIpynb,
+      ));
+  onProgress?.call(1.0);
+
+  return '已导入 $imported 章/篇到 subject_library/$targetName';
+}
+
+/// 后台 isolate 内执行教材导入核心：gzip 解压 → tar 解析 → 逐文件转写。
+///
+/// 全参数均为可发送的 primitive（TextbookSource 对象不能跨 isolate），
+/// 与 [importTextbook] 的进度回调解耦。gzip 用 dart:io 流式管道解到中间
+/// tar 文件（不整包读内存），再 InputFileStream + TarDecoder.decodeStream
+/// 懒加载解析——文件内容只在访问时按需读，处理完立即 clear 释放，
+/// 内存占用恒定。（旧实现整包驻留内存，大教材在低内存设备上 OOM/卡死。）
+Future<int> _extractAndWrite({
+  required String tmpPath,
+  required String tarTmpPath,
+  required String targetDirPath,
+  required String name,
+  required String subject,
+  required String description,
+  required String sourceUrl,
+  required String license,
+  String? subdir,
+  required bool isIpynb,
+}) async {
+  final tmp = File(tmpPath);
+  final tarTmp = File(tarTmpPath);
+  final targetDir = Directory(targetDirPath);
   var imported = 0;
   try {
     await tmp
         .openRead()
         .transform(gzip.decoder)
         .pipe(tarTmp.openWrite());
-    onProgress?.call(0.55);
 
     final input = InputFileStream(tarTmp.path);
     try {
       final archive = TarDecoder().decodeStream(input);
-      onProgress?.call(0.6);
 
       // 解压后顶层目录名（GitHub tarball 是 <repo>-<branch>/）。
       final topDir = archive.files.first.name.split('/').first;
-      final subPrefix = src.subdir != null ? '$topDir/${src.subdir}/' : '$topDir/';
+      final subPrefix = subdir != null ? '$topDir/$subdir/' : '$topDir/';
 
       await targetDir.create(recursive: true);
       for (final file in archive.files) {
@@ -146,13 +183,12 @@ Future<String> importTextbook(
         // 防御 tar slip。
         if (rel.contains('..') || rel.startsWith('/')) continue;
         // 只取源子目录内的文件（md 源取 .md，ipynb 源取 .ipynb）。
-        final isInScope = src.subdir != null
-            ? rel.startsWith(subPrefix)
-            : rel.startsWith(topDir);
+        final isInScope =
+            subdir != null ? rel.startsWith(subPrefix) : rel.startsWith(topDir);
         if (!isInScope) continue;
         final isMd = rel.endsWith('.md');
-        final isIpynb = rel.endsWith('.ipynb');
-        if (!isMd && !isIpynb) continue;
+        final isIpynbFile = rel.endsWith('.ipynb');
+        if (!isMd && !isIpynbFile) continue;
         // 跳过非章节文件（README/LICENSE/欢迎页/说明）。
         final base = rel.split('/').last.toLowerCase();
         if (isMd &&
@@ -167,8 +203,8 @@ Future<String> importTextbook(
           continue;
         }
 
-        final outRel = _outPath(src, rel, topDir);
-        final out = File('${targetDir.path}/$outRel');
+        final outRel = _outPath(rel, topDir, isIpynb);
+        final out = File('$targetDirPath/$outRel');
         await out.parent.create(recursive: true);
 
         // 懒加载读单个文件内容（此刻才真正从磁盘读），用完立即释放，
@@ -177,7 +213,7 @@ Future<String> importTextbook(
           final content = _decodeUtf8(file.content as List<int>);
           await out.writeAsString(content);
           imported++;
-        } else if (isIpynb) {
+        } else if (isIpynbFile) {
           final content = _decodeUtf8(file.content as List<int>);
           final md = _ipynbToMarkdown(content);
           if (md.trim().isNotEmpty) {
@@ -189,7 +225,14 @@ Future<String> importTextbook(
       }
 
       // 许可/来源标注。
-      await _writeLicense(targetDir, src);
+      await _writeLicenseFile(
+        targetDirPath,
+        name: name,
+        subject: subject,
+        sourceUrl: sourceUrl,
+        license: license,
+        description: description,
+      );
     } finally {
       input.closeSync();
     }
@@ -203,18 +246,16 @@ Future<String> importTextbook(
   try {
     if (tmp.existsSync()) await tmp.delete();
   } catch (_) {}
-  onProgress?.call(1.0);
-
-  return '已导入 $imported 章/篇到 subject_library/$targetName';
+  return imported;
 }
 
 /// 计算解压后文件的相对输出路径（去掉 GitHub tarball 顶层目录前缀）。
-String _outPath(TextbookSource src, String rel, String topDir) {
+String _outPath(String rel, String topDir, bool isIpynb) {
   var out = rel;
   if (out.startsWith(topDir)) {
     out = out.substring(topDir.length + 1);
   }
-  if (src.isIpynb && out.endsWith('.ipynb')) {
+  if (isIpynb && out.endsWith('.ipynb')) {
     out = out.replaceAll('.ipynb', '.md');
   }
   return out;
@@ -293,17 +334,24 @@ Future<void> _downloadToFile(String url, File file) async {
 String _decodeUtf8(List<int> bytes) =>
     utf8.decode(bytes, allowMalformed: true);
 
-/// 写许可与来源标注文件。
-Future<void> _writeLicense(Directory dir, TextbookSource src) async {
+/// 写许可与来源标注文件（isolate 内调用，参数全为 primitive）。
+Future<void> _writeLicenseFile(
+  String dirPath, {
+  required String name,
+  required String subject,
+  required String sourceUrl,
+  required String license,
+  required String description,
+}) async {
   final content = '''
-# $src.name
+# $name
 
-- 科目：$src.subject
-- 来源：${src.sourceUrl}
-- 许可证：$src.license
+- 科目：$subject
+- 来源：$sourceUrl
+- 许可证：$license
 - 说明：由 MIX 一键导入功能从开源仓库下载。
 
-$src.description
+$description
 ''';
-  await File('${dir.path}/教材来源说明.txt').writeAsString(content);
+  await File('$dirPath/教材来源说明.txt').writeAsString(content);
 }

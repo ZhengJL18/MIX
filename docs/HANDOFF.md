@@ -31,6 +31,16 @@
 - 认证走 App 设置中的 GitHub PAT（`github_pat_token` / `github_username`）。
 - 支持 SSL 证书配置（修 clone 报 `SSL certificate invalid`）。
 
+### 阻塞型重活隔离（2026-08-16）
+- **动机**：git clone / 下载 / 加解密等同步 CPU 重活跑在主 isolate，导致「UI 卡住 / 转圈」。不逐个定位真凶，改为**全部阻塞型重活统一丢后台 isolate**（`Isolate.run`），主 isolate 只收结果。
+- **已隔离**：git 工具集全部 10 个操作（init/status/add/commit/log/branch/diff/clone/push/pull，git_tools.dart）；保险柜 AES+PBKDF2 加密/解密（vault_screen.dart）；md→docx zip 打包（convert_tools.dart）；教材导入解压+tar 解析+逐文件转写（textbook_importer.dart，`_extractAndWrite` 顶层函数进 isolate，进度 0.55→1.0 两段式）；出题管线 JSON 提取（study_question_service.dart，`_extractJson` → `_extractJsonFromText` 顶层函数）。
+- **踩坑记录**：
+  - 跨 isolate 只传可发送的 primitive（String/int/bool/List/Map），对象（TextbookSource 等）要拆字段传参。
+  - 进度回调 / SharedPreferences / 平台通道不能进 isolate：token 与 SSL 初始化在 handler 里先做（主 isolate），解析后的值传进 isolate。
+  - isolate 内异常会包成 RemoteError：vault 解密在 isolate 内捕获 FormatException 转 null 哨兵，外面 `on FormatException` 分支才能正常显示「密钥错误或数据损坏」。
+  - 顺带修复：github_screen 本地仓库操作 switch 缺 break（case 运行时 fallthrough，commit 结果被后续 case 覆盖）——补 break。
+- **约束**：今后新增阻塞型重活一律走 `Isolate.run`，不写回主 isolate；测试仍可直接调用同步纯函数（如 encryptPayload）。
+
 ### 学习工具（study）
 - `study_list` / `study_question` / `study_record` / `study_profile_update`。
 - **`study_quiz`（2026-08-14 新增，批量题卡）**：一次多题 → UI 渲染 PageView 滑动题卡（题目+选项同卡）→ 逐题作答、UI 机械判题（grade=true，对绿错红+简析）→ 答完 complete 回填 agent → agent 讲解错题；开放题 grade=false 由 AI 点评。`update_profile` 由 AI 出题时声明；有真实 question_id 的题才落 `study_record`，手写题不落库。已接入学习模式与通用助手（daily）工作流，`toolsets.dart` 新增 `quiz` 工具集。设计文档见 `notes/规划/MIX批量题卡-设计与落地.md`。**遗留：真机验证未做（daily「出 10 题」→ 滑动 → 判题 → 讲解）。**

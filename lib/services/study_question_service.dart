@@ -10,6 +10,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import '../llm/openai_llm.dart';
 import 'study_engine.dart';
@@ -124,16 +125,10 @@ class StudyQuestionService {
   }
 
   /// 从 LLM 输出提取 JSON（容忍被 markdown fence 包裹 / 前后杂文字）。
-  Map<String, dynamic>? _extractJson(String text) {
-    final start = text.indexOf('{');
-    final end = text.lastIndexOf('}');
-    if (start < 0 || end <= start) return null;
-    try {
-      final decoded = jsonDecode(text.substring(start, end + 1));
-      return decoded is Map<String, dynamic> ? decoded : null;
-    } catch (_) {
-      return null;
-    }
+  /// 在后台 isolate 执行——批量题卡/复杂题 JSON 可能几十 KB，jsonDecode
+  /// 是同步 CPU 活，直接跑在主 isolate 会让 UI 掉帧。
+  Future<Map<String, dynamic>?> _extractJson(String text) {
+    return Isolate.run(() => _extractJsonFromText(text));
   }
 
   /// 读文件（容错）。
@@ -227,7 +222,7 @@ ${recent.isEmpty ? '(无)' : recent.map((q) => '- ${q.content} [答案${q.answer
       '根据出题任务卡，先出这道题最朴素的雏形（允许粗糙、答案简单）。'
           '严格输出 JSON: {"question","options":[4个],"answer":"A","explanation"}。\n\n$taskCard',
     );
-    var questionJson = _extractJson(draftText);
+    var questionJson = await _extractJson(draftText);
     if (questionJson == null) {
       return QuestionResult(error: '雏形生成失败：无法解析输出');
     }
@@ -263,7 +258,7 @@ ${recent.isEmpty ? '(无)' : recent.map((q) => '- ${q.content} [答案${q.answer
             '严格输出升级后的 JSON: {"question","options":[4],"answer","explanation"}。'
             '不要说明，直接输出 JSON。',
       );
-      final upJson = _extractJson(upText);
+      final upJson = await _extractJson(upText);
       if (upJson == null) {
         return QuestionResult(error: '复杂度轮 $dim 失败：无法解析输出');
       }
@@ -285,7 +280,7 @@ ${recent.isEmpty ? '(无)' : recent.map((q) => '- ${q.content} [答案${q.answer
             '不通过时必须给出 2-5 条具体原因（按方法论清单）。',
         maxTokens: 800,
       );
-      final crit = _extractJson(critText);
+      final crit = await _extractJson(critText);
       final pass = crit?['pass'] == true;
       if (pass) break;
       critiqueNote = (crit?['reasons'] as List?)?.join('; ') ?? '批判未通过';
@@ -299,7 +294,7 @@ ${recent.isEmpty ? '(无)' : recent.map((q) => '- ${q.content} [答案${q.answer
         '批判意见: $critiqueNote\n\n当前题:\n$curJson2\n\n'
             '修订后严格输出 JSON: {"question","options":[4],"answer","explanation"}。',
       );
-      final fixJson = _extractJson(fixText);
+      final fixJson = await _extractJson(fixText);
       if (fixJson == null) return QuestionResult(error: '修订失败：无法解析输出');
       questionJson = fixJson;
     }
@@ -312,7 +307,7 @@ ${recent.isEmpty ? '(无)' : recent.map((q) => '- ${q.content} [答案${q.answer
       '题目 JSON:\n${jsonEncode(questionJson)}\n\n'
           '精炼后严格输出 JSON: {"question","options":[4],"answer","explanation"}。',
     );
-    final refineJson = _extractJson(refineText);
+    final refineJson = await _extractJson(refineText);
     if (refineJson != null) questionJson = refineJson;
 
     // ── Phase 6 终审（规则 + LLM） ──
@@ -334,7 +329,7 @@ ${recent.isEmpty ? '(无)' : recent.map((q) => '- ${q.content} [答案${q.answer
       '题目:\n${jsonEncode(current)}',
       maxTokens: 400,
     );
-    final finalCheck = _extractJson(finalText);
+    final finalCheck = await _extractJson(finalText);
     final finalPass = finalCheck?['pass'] == true;
     var finalCurrent = current;
     if (!finalPass) {
@@ -345,7 +340,7 @@ ${recent.isEmpty ? '(无)' : recent.map((q) => '- ${q.content} [答案${q.answer
         '原因: ${(finalCheck?['reasons'] as List?)?.join('; ')}\n\n题目:\n${jsonEncode(finalCurrent)}\n\n'
             '修订后严格输出 JSON。',
       );
-      final lastJson = _extractJson(lastText);
+      final lastJson = await _extractJson(lastText);
       if (lastJson != null) finalCurrent = lastJson;
     }
 
@@ -366,5 +361,19 @@ ${recent.isEmpty ? '(无)' : recent.map((q) => '- ${q.content} [答案${q.answer
           json: jsonEncode({...finalCurrent, 'question_id': qid}));
     }
     return QuestionResult(error: '终审失败：题目结构不合法');
+  }
+}
+
+/// 从 LLM 输出提取 JSON 的纯函数（顶层，供后台 isolate 调用）。
+/// 容忍被 markdown fence 包裹 / 前后杂文字。
+Map<String, dynamic>? _extractJsonFromText(String text) {
+  final start = text.indexOf('{');
+  final end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    final decoded = jsonDecode(text.substring(start, end + 1));
+    return decoded is Map<String, dynamic> ? decoded : null;
+  } catch (_) {
+    return null;
   }
 }

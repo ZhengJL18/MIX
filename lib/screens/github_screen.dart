@@ -178,7 +178,7 @@ class _GitHubScreenState extends State<GitHubScreen>
       ),
     );
     await ensureGitSsl();
-    final result = gitClone(
+    final result = await gitClone(
       url: repo.cloneUrl ?? 'https://github.com/${repo.fullName}.git',
       localPath: destDir,
       token: creds?.token,
@@ -454,8 +454,13 @@ class _LocalRepoScreenState extends State<LocalRepoScreen> {
   Future<void> _refresh() async {
     setState(() {
       _loading = true;
-      _status = gitStatus(path: widget.path);
-      _log = gitLog(path: widget.path, limit: 15);
+    });
+    final status = await gitStatus(path: widget.path);
+    final log = await gitLog(path: widget.path, limit: 15);
+    if (!mounted) return;
+    setState(() {
+      _status = status;
+      _log = log;
       _loading = false;
     });
   }
@@ -469,21 +474,27 @@ class _LocalRepoScreenState extends State<LocalRepoScreen> {
     String result;
     switch (action) {
       case 'commit':
-        result = gitAdd(path: widget.path, files: const ['.']);
-        result += '\n${gitCommit(path: widget.path, message: 'MIX: auto commit')}';
+        result = await gitAdd(path: widget.path, files: const ['.']);
+        result += '\n${await gitCommit(path: widget.path, message: 'MIX: auto commit')}';
+        break;
       case 'push':
-        result = gitPush(path: widget.path, token: creds?.token);
+        result = await gitPush(path: widget.path, token: creds?.token);
+        break;
       case 'pull':
-        result = gitPull(path: widget.path, token: creds?.token);
+        result = await gitPull(path: widget.path, token: creds?.token);
+        break;
       default:
         result = '';
     }
     if (!mounted) return;
+    final status = await gitStatus(path: widget.path);
+    final log = await gitLog(path: widget.path, limit: 15);
+    if (!mounted) return;
     setState(() {
       _busy = false;
       _result = result;
-      _status = gitStatus(path: widget.path);
-      _log = gitLog(path: widget.path, limit: 15);
+      _status = status;
+      _log = log;
     });
   }
 

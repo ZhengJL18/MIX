@@ -10,6 +10,7 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -185,7 +186,8 @@ Future<String> _handleMdToDocx(Map<String, dynamic> args,
     final mdText = _readSource(source, content);
     final outPath = await _resolveOutput(
         args['output'] as String?, source, '.docx');
-    final bytes = buildDocxFromMarkdown(mdText);
+    // zip 打包是 CPU 密集活，丢后台 isolate 避免大文档卡 UI。
+    final bytes = await Isolate.run(() => buildDocxFromMarkdown(mdText));
     await File(outPath).writeAsBytes(bytes, flush: true);
     return toolResult({
       'output': outPath,

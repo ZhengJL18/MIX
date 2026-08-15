@@ -5,6 +5,7 @@
 library;
 
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:git2dart/git2dart.dart';
 import 'package:git2dart_binaries/git2dart_binaries.dart'
@@ -159,149 +160,161 @@ String gitVersion() {
 }
 
 /// git init：在 [path] 初始化仓库。
-String gitInit({required String path}) {
-  try {
-    Repository.initBasic(path: path, bare: false);
-    return 'Initialized empty Git repository at $path';
-  } catch (e) {
-    return toolError('git init failed: $e');
-  }
+Future<String> gitInit({required String path}) {
+  return Isolate.run(() {
+    try {
+      Repository.initBasic(path: path, bare: false);
+      return 'Initialized empty Git repository at $path';
+    } catch (e) {
+      return toolError('git init failed: $e');
+    }
+  });
 }
 
 /// git status：工作区状态（改动文件 + 是否已暂存）。
-String gitStatus({required String path}) {
-  try {
-    final repo = Repository.open(path);
-    final lines = <String>[];
-    // 暂存区（index）相对 HEAD 的差异。
-    final head = _tryHeadOid(repo);
-    if (head == null) {
-      lines.add('* 新仓库，尚无提交');
-    }
-    lines.add('* 暂存区文件:');
-    for (final e in repo.index) {
-      lines.add('  - ${e.path}');
-    }
-    // 工作区改动：比较 index 与工作树。git2dart 的 status 需遍历 diff，
-    // 简化：列出工作区所有文件与 index 的差异。
-    final status = _statusEntries(repo);
-    if (status.isEmpty) {
-      lines.add('* 无未暂存改动');
-    } else {
-      lines.add('* 未暂存改动:');
-      for (final s in status) {
-        // _statusEntries 返回 Map({'path': ...}) 或 IndexEntry，统一取 path。
-        final p = s is Map ? s['path'] : (s as dynamic).path;
-        lines.add('  - $p');
+Future<String> gitStatus({required String path}) {
+  return Isolate.run(() {
+    try {
+      final repo = Repository.open(path);
+      final lines = <String>[];
+      // 暂存区（index）相对 HEAD 的差异。
+      final head = _tryHeadOid(repo);
+      if (head == null) {
+        lines.add('* 新仓库，尚无提交');
       }
-    }
-    // 未跟踪文件（untracked）：工作区有、index 没有的新文件。
-    final untracked = _untrackedFiles(repo);
-    if (untracked.isNotEmpty) {
-      lines.add('* 未跟踪文件:');
-      for (final u in untracked) {
-        lines.add('  - $u');
+      lines.add('* 暂存区文件:');
+      for (final e in repo.index) {
+        lines.add('  - ${e.path}');
       }
+      // 工作区改动：比较 index 与工作树。git2dart 的 status 需遍历 diff，
+      // 简化：列出工作区所有文件与 index 的差异。
+      final status = _statusEntries(repo);
+      if (status.isEmpty) {
+        lines.add('* 无未暂存改动');
+      } else {
+        lines.add('* 未暂存改动:');
+        for (final s in status) {
+          // _statusEntries 返回 Map({'path': ...}) 或 IndexEntry，统一取 path。
+          final p = s is Map ? s['path'] : (s as dynamic).path;
+          lines.add('  - $p');
+        }
+      }
+      // 未跟踪文件（untracked）：工作区有、index 没有的新文件。
+      final untracked = _untrackedFiles(repo);
+      if (untracked.isNotEmpty) {
+        lines.add('* 未跟踪文件:');
+        for (final u in untracked) {
+          lines.add('  - $u');
+        }
+      }
+      return lines.join('\n');
+    } catch (e) {
+      return toolError('git status failed: $e');
     }
-    return lines.join('\n');
-  } catch (e) {
-    return toolError('git status failed: $e');
-  }
+  });
 }
 
 /// git add：暂存文件。[files] 为空时暂存全部。
-String gitAdd({required String path, List<String> files = const []}) {
-  try {
-    final repo = Repository.open(path);
-    repo.index.addAll(files.isEmpty ? const ['.'] : files);
-    repo.index.write();
-    return 'Staged ${files.isEmpty ? 'all files' : files.join(', ')}';
-  } catch (e) {
-    return toolError('git add failed: $e');
-  }
+Future<String> gitAdd({required String path, List<String> files = const []}) {
+  return Isolate.run(() {
+    try {
+      final repo = Repository.open(path);
+      repo.index.addAll(files.isEmpty ? const ['.'] : files);
+      repo.index.write();
+      return 'Staged ${files.isEmpty ? 'all files' : files.join(', ')}';
+    } catch (e) {
+      return toolError('git add failed: $e');
+    }
+  });
 }
 
 /// git commit：提交暂存区。
-String gitCommit({
+Future<String> gitCommit({
   required String path,
   required String message,
   String? authorName,
   String? authorEmail,
 }) {
-  try {
-    final repo = Repository.open(path);
-    final index = repo.index;
-    // 写 tree。
-    final treeOid = index.writeTree(repo);
-    final tree = Tree.lookup(repo: repo, oid: treeOid);
-    // 父提交（HEAD 指向的 commit）。
-    final parents = <Commit>[];
-    final headOid = _tryHeadOid(repo);
-    if (headOid != null) {
-      parents.add(Commit.lookup(repo: repo, oid: headOid));
+  return Isolate.run(() {
+    try {
+      final repo = Repository.open(path);
+      final index = repo.index;
+      // 写 tree。
+      final treeOid = index.writeTree(repo);
+      final tree = Tree.lookup(repo: repo, oid: treeOid);
+      // 父提交（HEAD 指向的 commit）。
+      final parents = <Commit>[];
+      final headOid = _tryHeadOid(repo);
+      if (headOid != null) {
+        parents.add(Commit.lookup(repo: repo, oid: headOid));
+      }
+      // 签名：优先自定义，否则仓库配置默认。
+      final signature = _makeSignature(repo, authorName, authorEmail);
+      final oid = Commit.create(
+        repo: repo,
+        updateRef: 'HEAD',
+        author: signature,
+        committer: signature,
+        message: message,
+        tree: tree,
+        parents: parents,
+      );
+      return 'Committed ${oid.toString().substring(0, 7)}: $message';
+    } catch (e) {
+      return toolError('git commit failed: $e');
     }
-    // 签名：优先自定义，否则仓库配置默认。
-    final signature = _makeSignature(repo, authorName, authorEmail);
-    final oid = Commit.create(
-      repo: repo,
-      updateRef: 'HEAD',
-      author: signature,
-      committer: signature,
-      message: message,
-      tree: tree,
-      parents: parents,
-    );
-    return 'Committed ${oid.toString().substring(0, 7)}: $message';
-  } catch (e) {
-    return toolError('git commit failed: $e');
-  }
+  });
 }
 
 /// git log：提交历史。
-String gitLog({required String path, int limit = 20}) {
-  try {
-    final repo = Repository.open(path);
-    final walker = RevWalk(repo);
-    walker.pushHead();
-    final commits = walker.walk(limit: limit);
-    if (commits.isEmpty) {
-      return 'No commits yet.';
+Future<String> gitLog({required String path, int limit = 20}) {
+  return Isolate.run(() {
+    try {
+      final repo = Repository.open(path);
+      final walker = RevWalk(repo);
+      walker.pushHead();
+      final commits = walker.walk(limit: limit);
+      if (commits.isEmpty) {
+        return 'No commits yet.';
+      }
+      final lines = <String>[];
+      for (final c in commits) {
+        final short = c.oid.toString().substring(0, 7);
+        final msg = c.message.trim().split('\n').first;
+        final when = DateTime.fromMillisecondsSinceEpoch(c.time * 1000)
+            .toLocal()
+            .toString()
+            .substring(0, 16);
+        lines.add('$short $when $msg');
+      }
+      return lines.join('\n');
+    } catch (e) {
+      return toolError('git log failed: $e');
     }
-    final lines = <String>[];
-    for (final c in commits) {
-      final short = c.oid.toString().substring(0, 7);
-      final msg = c.message.trim().split('\n').first;
-      final when = DateTime.fromMillisecondsSinceEpoch(c.time * 1000)
-          .toLocal()
-          .toString()
-          .substring(0, 16);
-      lines.add('$short $when $msg');
-    }
-    return lines.join('\n');
-  } catch (e) {
-    return toolError('git log failed: $e');
-  }
+  });
 }
 
 /// git branch：分支列表。
-String gitBranch({required String path}) {
-  try {
-    final repo = Repository.open(path);
-    final current = _tryHeadBranchName(repo);
-    final branches = repo.branchesLocal;
-    if (branches.isEmpty) {
-      return 'No branches yet.';
+Future<String> gitBranch({required String path}) {
+  return Isolate.run(() {
+    try {
+      final repo = Repository.open(path);
+      final current = _tryHeadBranchName(repo);
+      final branches = repo.branchesLocal;
+      if (branches.isEmpty) {
+        return 'No branches yet.';
+      }
+      final lines = <String>[];
+      for (final b in branches) {
+        final name = b.name;
+        final mark = name == current ? '* ' : '  ';
+        lines.add('$mark$name');
+      }
+      return lines.join('\n');
+    } catch (e) {
+      return toolError('git branch failed: $e');
     }
-    final lines = <String>[];
-    for (final b in branches) {
-      final name = b.name;
-      final mark = name == current ? '* ' : '  ';
-      lines.add('$mark$name');
-    }
-    return lines.join('\n');
-  } catch (e) {
-    return toolError('git branch failed: $e');
-  }
+  });
 }
 
 // ============================================================================
@@ -410,37 +423,39 @@ List<dynamic> _statusEntries(Repository repo) {
 /// 内存保护：先遍历 `diff.deltas`（只有 stat 信息，不读文件内容），
 /// 单侧超过 1MB 的文件**不生成 patch 文本**（避免 libgit2 把大文件
 /// 整读进内存算 diff），只报文件名。
-String gitDiff({required String path, String? target}) {
-  try {
-    final repo = Repository.open(path);
-    final diff = Diff.indexToWorkdir(repo: repo, index: repo.index);
-    final deltas = diff.deltas;
-    if (deltas.isEmpty) {
-      return 'No unstaged changes.';
-    }
-    const maxDiffFileBytes = 1 << 20; // 1MB
-    final parts = <String>[];
-    for (var i = 0; i < deltas.length; i++) {
-      final d = deltas[i];
-      final newFile = d.newFile;
-      final oldFile = d.oldFile;
-      final filePath =
-          newFile.path.isNotEmpty ? newFile.path : oldFile.path;
-      final maxSize =
-          newFile.size > oldFile.size ? newFile.size : oldFile.size;
-      if (maxSize > maxDiffFileBytes) {
-        parts.add('(跳过 diff 内容: $filePath 约 ${maxSize ~/ 1024}KB '
-            '> 1MB 上限，仅列出文件名)');
-        continue;
+Future<String> gitDiff({required String path, String? target}) {
+  return Isolate.run(() {
+    try {
+      final repo = Repository.open(path);
+      final diff = Diff.indexToWorkdir(repo: repo, index: repo.index);
+      final deltas = diff.deltas;
+      if (deltas.isEmpty) {
+        return 'No unstaged changes.';
       }
-      // 只对安全的小文件生成 patch（Patch.fromDiff 按索引单个生成，
-      // 大文件的 delta 完全不触发内容读取）。
-      parts.add(Patch.fromDiff(diff: diff, index: i).text);
+      const maxDiffFileBytes = 1 << 20; // 1MB
+      final parts = <String>[];
+      for (var i = 0; i < deltas.length; i++) {
+        final d = deltas[i];
+        final newFile = d.newFile;
+        final oldFile = d.oldFile;
+        final filePath =
+            newFile.path.isNotEmpty ? newFile.path : oldFile.path;
+        final maxSize =
+            newFile.size > oldFile.size ? newFile.size : oldFile.size;
+        if (maxSize > maxDiffFileBytes) {
+          parts.add('(跳过 diff 内容: $filePath 约 ${maxSize ~/ 1024}KB '
+              '> 1MB 上限，仅列出文件名)');
+          continue;
+        }
+        // 只对安全的小文件生成 patch（Patch.fromDiff 按索引单个生成，
+        // 大文件的 delta 完全不触发内容读取）。
+        parts.add(Patch.fromDiff(diff: diff, index: i).text);
+      }
+      return parts.join('\n');
+    } catch (e) {
+      return toolError('git diff failed: $e');
     }
-    return parts.join('\n');
-  } catch (e) {
-    return toolError('git diff failed: $e');
-  }
+  });
 }
 
 /// git clone：克隆远程仓库到本地（内存友好版）。
@@ -454,109 +469,115 @@ String gitDiff({required String path, String? target}) {
 ///
 /// [token] 提供时用 HTTPS + PAT（UserPass username 用 'x-access-token'）。
 /// 不支持认证时（无 token）尝试匿名 clone（公开仓库）。
-String gitClone({
+Future<String> gitClone({
   required String url,
   required String localPath,
   String? token,
 }) {
-  try {
-    final callbacks = (token != null && token.isNotEmpty)
-        ? Callbacks(
-            credentials:
-                UserPass(username: 'x-access-token', password: token))
-        : const Callbacks();
-    // 1. 空仓库（比 Repository.clone 轻，且可控 fetch 范围）。
-    final repo = Repository.initBasic(path: localPath, bare: false);
-    // 2. origin 默认 fetch refspec 只跟 master 单分支。
-    Remote.create(
-      repo: repo,
-      name: 'origin',
-      url: url,
-      fetch: '+refs/heads/master:refs/remotes/origin/master',
-    );
-    // 3. 显式单分支 fetch（不拉 tags / 其他分支的 refs）。
-    final remote = Remote.lookup(repo: repo, name: 'origin');
-    remote.fetch(
-      refspecs: const ['+refs/heads/master:refs/remotes/origin/master'],
-      callbacks: callbacks,
-    );
-    // 4. 本地 master → 远程 master，checkout 工作树。
-    final remoteHead =
-        Branch.lookup(repo: repo, name: 'origin/master', type: GitBranch.remote);
-    final headCommit = Commit.lookup(repo: repo, oid: remoteHead.target);
-    Branch.create(repo: repo, name: 'master', target: headCommit);
-    repo.setHead('refs/heads/master');
-    repo.reset(oid: remoteHead.target, resetType: GitReset.hard);
-    return 'Cloned $url → $localPath（单分支 master，未拉 tags）';
-  } catch (e) {
-    return toolError('git clone failed: $e');
-  }
+  return Isolate.run(() {
+    try {
+      final callbacks = (token != null && token.isNotEmpty)
+          ? Callbacks(
+              credentials:
+                  UserPass(username: 'x-access-token', password: token))
+          : const Callbacks();
+      // 1. 空仓库（比 Repository.clone 轻，且可控 fetch 范围）。
+      final repo = Repository.initBasic(path: localPath, bare: false);
+      // 2. origin 默认 fetch refspec 只跟 master 单分支。
+      Remote.create(
+        repo: repo,
+        name: 'origin',
+        url: url,
+        fetch: '+refs/heads/master:refs/remotes/origin/master',
+      );
+      // 3. 显式单分支 fetch（不拉 tags / 其他分支的 refs）。
+      final remote = Remote.lookup(repo: repo, name: 'origin');
+      remote.fetch(
+        refspecs: const ['+refs/heads/master:refs/remotes/origin/master'],
+        callbacks: callbacks,
+      );
+      // 4. 本地 master → 远程 master，checkout 工作树。
+      final remoteHead = Branch.lookup(
+          repo: repo, name: 'origin/master', type: GitBranch.remote);
+      final headCommit = Commit.lookup(repo: repo, oid: remoteHead.target);
+      Branch.create(repo: repo, name: 'master', target: headCommit);
+      repo.setHead('refs/heads/master');
+      repo.reset(oid: remoteHead.target, resetType: GitReset.hard);
+      return 'Cloned $url → $localPath（单分支 master，未拉 tags）';
+    } catch (e) {
+      return toolError('git clone failed: $e');
+    }
+  });
 }
 
 /// git push：推送当前分支到 origin。
-String gitPush({
+Future<String> gitPush({
   required String path,
   String? token,
   String branch = 'master',
 }) {
-  try {
-    final repo = Repository.open(path);
-    final creds = token != null && token.isNotEmpty
-        ? UserPass(username: 'x-access-token', password: token) as Credentials
-        : null;
-    final callbacks = Callbacks(credentials: creds);
-    final remote = Remote.lookup(repo: repo, name: 'origin');
-    remote.push(
-      refspecs: ['refs/heads/$branch:refs/heads/$branch'],
-      callbacks: callbacks,
-    );
-    return 'Pushed $branch → origin';
-  } catch (e) {
-    return toolError('git push failed: $e');
-  }
+  return Isolate.run(() {
+    try {
+      final repo = Repository.open(path);
+      final creds = token != null && token.isNotEmpty
+          ? UserPass(username: 'x-access-token', password: token) as Credentials
+          : null;
+      final callbacks = Callbacks(credentials: creds);
+      final remote = Remote.lookup(repo: repo, name: 'origin');
+      remote.push(
+        refspecs: ['refs/heads/$branch:refs/heads/$branch'],
+        callbacks: callbacks,
+      );
+      return 'Pushed $branch → origin';
+    } catch (e) {
+      return toolError('git push failed: $e');
+    }
+  });
 }
 
 /// git pull：从 origin 拉取，但**不做硬 reset**（避免丢本地未 push 提交）。
 ///
 /// libgit2 绑定无 merge 能力，这里 fetch 后报告本地与 origin 的领先/落后；
 /// 需要真正合并时用系统 git 命令执行 `git merge` / `git pull --rebase`。
-String gitPull({
+Future<String> gitPull({
   required String path,
   String? token,
 }) {
-  try {
-    final repo = Repository.open(path);
-    final creds = token != null && token.isNotEmpty
-        ? UserPass(username: 'x-access-token', password: token) as Credentials
-        : null;
-    final callbacks = Callbacks(credentials: creds);
-    final remote = Remote.lookup(repo: repo, name: 'origin');
-    // 只 fetch master 单分支（空 refspec 会按 origin 配置拉全部分支 + tag，
-    // 4GB 设备上对象解压易 OOM）。
-    remote.fetch(
-      refspecs: const ['+refs/heads/master:refs/remotes/origin/master'],
-      callbacks: callbacks,
-    );
-    final headName = repo.head.name;
-    final shortName = headName.split('/').last;
-    // 对比本地 head 与 origin/<branch>：一致则最新；不一致提示用终端合并。
-    final localHead = repo.head.target;
+  return Isolate.run(() {
     try {
-      final remoteBranch = Branch.lookup(
-          repo: repo, name: 'origin/$shortName', type: GitBranch.remote);
-      if (localHead == remoteBranch.target) {
-        return '已是最新（origin/$shortName 与本地一致）';
+      final repo = Repository.open(path);
+      final creds = token != null && token.isNotEmpty
+          ? UserPass(username: 'x-access-token', password: token) as Credentials
+          : null;
+      final callbacks = Callbacks(credentials: creds);
+      final remote = Remote.lookup(repo: repo, name: 'origin');
+      // 只 fetch master 单分支（空 refspec 会按 origin 配置拉全部分支 + tag，
+      // 4GB 设备上对象解压易 OOM）。
+      remote.fetch(
+        refspecs: const ['+refs/heads/master:refs/remotes/origin/master'],
+        callbacks: callbacks,
+      );
+      final headName = repo.head.name;
+      final shortName = headName.split('/').last;
+      // 对比本地 head 与 origin/<branch>：一致则最新；不一致提示用终端合并。
+      final localHead = repo.head.target;
+      try {
+        final remoteBranch = Branch.lookup(
+            repo: repo, name: 'origin/$shortName', type: GitBranch.remote);
+        if (localHead == remoteBranch.target) {
+          return '已是最新（origin/$shortName 与本地一致）';
+        }
+      } catch (_) {
+        // origin 分支不存在（首次 fetch）→ 只下载对象。
+        return '已 fetch origin（首次，本地尚无对应分支）。可 push 到 origin。';
       }
-    } catch (_) {
-      // origin 分支不存在（首次 fetch）→ 只下载对象。
-      return '已 fetch origin（首次，本地尚无对应分支）。可 push 到 origin。';
+      return '已 fetch origin/$shortName（本地与远程不同步）。\n'
+          '未自动合并（避免硬 reset 丢提交）。如需合并，请用系统 git 命令'
+          '执行：git merge origin/$shortName 或 git pull --rebase';
+    } catch (e) {
+      return toolError('git pull failed: $e');
     }
-    return '已 fetch origin/$shortName（本地与远程不同步）。\n'
-        '未自动合并（避免硬 reset 丢提交）。如需合并，请用系统 git 命令'
-        '执行：git merge origin/$shortName 或 git pull --rebase';
-  } catch (e) {
-    return toolError('git pull failed: $e');
-  }
+  });
 }
 
 

@@ -5,6 +5,7 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -150,7 +151,8 @@ class _VaultScreenState extends State<VaultScreen> {
     });
     try {
       final payload = await buildBackupPayload(includePaths: selected);
-      final encrypted = encryptPayload(payload, secret);
+      final encrypted =
+          await Isolate.run(() => encryptPayload(payload, secret));
       setState(() => _msg = '上传中…');
       await uploadBackup(cfg, encrypted);
       _setMsg('✓ 备份已上传（${encrypted.length} 字节，已加密）');
@@ -231,7 +233,19 @@ class _VaultScreenState extends State<VaultScreen> {
     try {
       final encrypted = await downloadBackup(cfg);
       setState(() => _msg = '解密中…');
-      final payload = decryptPayload(encrypted, secret);
+      // decryptPayload 抛的 FormatException 若跨 isolate 会变成 RemoteError，
+      // 外面 on FormatException 分支抓不到 → 在 isolate 内转成 null 哨兵。
+      final payload = await Isolate.run(() {
+        try {
+          return decryptPayload(encrypted, secret);
+        } on FormatException {
+          return null;
+        }
+      });
+      if (payload == null) {
+        _setMsg('✗ 解密失败：密钥错误或数据损坏');
+        return;
+      }
       await _restorePayload(payload);
       _setMsg('✓ 已恢复备份');
     } on FormatException {
