@@ -26,7 +26,7 @@
 ### 工具系统（≈40 个工具，全部走 Hermes 式注册协议）
 - **文件**：`read_file` / `write_file` / `patch`(V4A) / `search_files` / copy / move / delete，含路径安全、敏感路径拦截、V4A 穿越拒绝
 - **网络**：`web_search`（谷歌 → 必应 → DuckDuckGo 无 key 逐级 fallback）/ `web_extract` / `web_download`，内置 SSRF 防护（拦截私网 / 云元数据端点）
-- **记忆**：`memory`（MEMORY.md / USER.md 文件持久化、容量上限、冻结快照注入保 prefix cache）
+- **记忆**：`memory`（MEMORY.md / USER.md 文件持久化、容量上限、冻结快照注入保 prefix cache）+ `memory_search` / `memory_read`（多记忆文档热词检索，见下"记忆子系统"）
 - **任务与会话**：`todo` / `session_search`（SQLite FTS5 四模式）/ `clarify`（内联选择卡，UI 机械判对错）
 - **技能**：`skills_list` / `skill_view` / `skill_manage`（SKILL.md frontmatter 解析、渐进式披露索引）
 - **委派与多代理**：`delegate_task`（最多 3 层子代理，快模型分级委派）/ `moa_discuss`（3 视角 × N 轮辩论 + 主持人综合）/ `delegate_to_department`（公司模式，CEO 调度部门）
@@ -34,6 +34,14 @@
 - **学习**：`study_list` / `study_question` / `study_record` / `study_profile_update` / `study_quiz`（批量题卡：左右滑动逐题作答，UI 机械判题，答完回填 agent 讲解；学习模式与通用助手均可出批量题）
 - **笔记库**：`notes_list` / `notes_search` / `notes_read` / `notes_write`（写后聊天侧出「打开笔记」深链）
 - **其他**：`vision_analyze`（独立视觉模型配置）、`read_doc`（格式探测 + 纯 Dart 解包 + 云端 /extract）、`md_to_docx` / `md_to_pdf` / `cloud_extract`、`cron_create/list/delete`（App 存活时触发）、用户脚本（知乎去登录 / 通用复制解锁 / 小红书）
+
+### 记忆子系统（v4 架构，2026-08 起逐步落地，设计见 `docs/MEMORY_SYSTEM_DESIGN.md`）
+- **多记忆文档**：记忆库 `memory.db`（memory_docs / tags / links / summaries / evidence 五表 + FTS5），`memory` 工具写入的内容自动索引为记忆文档
+- **中文分词**：dart_jieba（Python jieba 纯 Dart 移植，MIT），assets 打包词典（2MB）+ jieba idf.txt（6.2MB 热词权重）；FTS5 预分词检索 + LIKE 降级
+- **热词检索**：`memory_search`（FTS5 bm25 + OR 连接 + 摘要优先 + token 预算）、`memory_read`（全文/摘要）
+- **确定性图建构（P1）**：写入时自动提取热词标签（黑名单 + IDF 门槛 + log 饱和防污染）→ 同标签文档互连（Hebbian 边权）→ 知识点匹配连边（study_engine 知识点入图为 `kind='knowledge'` 文档，扩散沿知识层级走）
+- **置信度引擎（P1）**：检索/读取/激活/作答事件流（memory_evidence）→ Beta-Binomial 置信度 + 遗忘衰减 → 注入门控（可靠度低不注入，"宁可缺不可杂"）
+- **异步预取**：每轮 `prefetchRecall` 冻结快照 + 热词检索合成 `<memory-context>` 围栏注入当前轮（保 prefix cache）
 
 ### 学习模式（核心特色：聊天即学习主场）
 - `StudyEngine`：SQLite 事实层（subjects / knowledge_points / questions / practice_records），**掌握度 = 近 15 题正确率的 SQL 现场聚合**，零公式零 LLM
