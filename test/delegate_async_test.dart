@@ -21,6 +21,7 @@ void main() {
     db = MemoryDB(dbPath: '${tmp.path}/memory.db');
     await db.init();
     delegateDb = db;
+    registerDelegateTool();
   });
 
   tearDown(() async {
