@@ -557,8 +557,8 @@ void registerMemoryTool({String? baseDir, MemoryStore? existingStore}) {
     name: 'memory',
     toolset: 'memory',
     schema: memorySchema,
-    handler: (args, [kwargs]) {
-      return memoryTool(
+    handler: (args, [kwargs]) async {
+      final result = memoryTool(
         action: args['action'] as String?,
         target: args['target'] as String? ?? 'memory',
         content: args['content'] as String?,
@@ -568,6 +568,14 @@ void registerMemoryTool({String? baseDir, MemoryStore? existingStore}) {
             .toList(),
         store: memoryStore,
       );
+      // P1：写入成功后异步索引（自动标签/知识点边），失败不影响原结果。
+      final hook = memoryIndexHook;
+      if (hook != null) {
+        try {
+          await hook(args, result);
+        } catch (_) {}
+      }
+      return result;
     },
     checkFn: () => true,
     emoji: '🧠',
@@ -576,3 +584,8 @@ void registerMemoryTool({String? baseDir, MemoryStore? existingStore}) {
 
 /// 全局记忆 store（AIAgent / 主循环共享）。
 MemoryStore? memoryStore;
+
+/// P1 记忆索引钩子（v4 §5 确定性图建构）：memory 工具写入成功后异步触发
+/// 自动标签/知识点边索引。由 main.dart 注入（关联 MemoryDB + StudyEngine）。
+/// 可空、异常吞掉——不改变 Hermes memory 工具语义，纯附加行为。
+Future<void> Function(Map<String, dynamic> args, String result)? memoryIndexHook;

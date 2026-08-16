@@ -36,6 +36,8 @@ import 'refine/trajectory_store.dart';
 import 'screens/settings_screen.dart';
 import 'services/chinese_segmenter.dart';
 import 'services/memory_db.dart';
+import 'services/memory_indexer.dart';
+import 'services/memory_tagger.dart';
 import 'services/multi_agent.dart';
 import 'services/storage_permission.dart';
 import 'services/study_engine.dart';
@@ -413,6 +415,8 @@ class _ChatScreenState extends State<ChatScreen> {
   int _reasoningMsgIdx = -1; // 当前"思考中"块索引（-1 表示无）。
   MemoryManager? _memory;
   MemoryDB? _memoryDb;
+  MemoryTagger? _memoryTagger;
+  MemoryIndexer? _memoryIndexer;
   SessionDB? _sessionDb;
   String? _currentSessionId;
   // 加载代际：每次加载递增，返回时若代际过期则丢弃结果（防并发加载串记录）。
@@ -1465,6 +1469,9 @@ class _ChatScreenState extends State<ChatScreen> {
       _memoryDb = MemoryDB(dbPath: '$dir/memory.db');
       await _memoryDb!.init();
       registerMemorySearchTools(db: _memoryDb);
+      // P1 热词提取器（自动标签管线，idf 表懒加载）。
+      _memoryTagger = MemoryTagger();
+      await _memoryTagger!.loadIdf(dir);
       _memory = MemoryManager(store: memoryStore!, memoryDb: _memoryDb);
     } catch (_) {}
     // 自定义部门（公司模式）。
@@ -1492,6 +1499,53 @@ class _ChatScreenState extends State<ChatScreen> {
       final engine = StudyEngine(dbPath: '$dir/study.db');
       await engine.init();
       _studyEngine = engine;
+    } catch (_) {}
+    // P1 记忆索引器（v4 §5 确定性图建构）：自动标签 + 知识点边。
+    // memory 工具写入后触发索引；知识点全量同步进记忆网。
+    try {
+      final md = _memoryDb;
+      final tagger = _memoryTagger;
+      if (md != null && tagger != null) {
+        _memoryIndexer = MemoryIndexer(
+          db: md,
+          tagger: tagger,
+          studyEngine: _studyEngine,
+        );
+        await _memoryIndexer!.syncKnowledgePoints();
+        memoryIndexHook = (args, result) async {
+          final indexer = _memoryIndexer;
+          if (indexer == null) return;
+          try {
+            final decoded = jsonDecode(result);
+            if (decoded is Map && decoded['success'] == true) {
+              // 提取 add/replace 的新内容（operations 批处理同样处理）。
+              final contents = <String>[];
+              final action = args['action'];
+              if (action == 'add' || action == 'replace') {
+                final c = args['content'];
+                if (c is String && c.trim().isNotEmpty) contents.add(c.trim());
+              }
+              final ops = args['operations'];
+              if (ops is List) {
+                for (final op in ops) {
+                  if (op is Map && (op['action'] == 'add' || op['action'] == 'replace')) {
+                    final c = op['content'];
+                    if (c is String && c.trim().isNotEmpty) contents.add(c.trim());
+                  }
+                }
+              }
+              for (final c in contents) {
+                await indexer.indexEntry(
+                  path: 'memory/entry/${c.hashCode}',
+                  title: c.length > 20 ? c.substring(0, 20) : c,
+                  content: c,
+                  kind: 'memory',
+                );
+              }
+            }
+          } catch (_) {}
+        };
+      }
     } catch (_) {}
     try {
       Directory(notesRootPath(dir)).createSync(recursive: true);
