@@ -50,13 +50,14 @@ void main() {
     test('verify 写入正证据提升置信度', () async {
       final id = await db.upsertDoc(path: 'b.md', title: 'B', content: 'x');
       await db.addEvidence('doc', id, 'rejected'); // 先有负证据。
+      final before = decode(await memoryVerifyTool(
+        action: 'check', docId: id, db: db));
       final res = decode(await memoryVerifyTool(
-        action: 'verify',
-        docId: id,
-        db: db,
-      ));
+        action: 'verify', docId: id, db: db));
       expect(res['success'], true);
-      expect(res['confidence'], greaterThan(0.5)); // verified 提升。
+      // verified 是正证据 → 置信度比 verify 前高。
+      expect(res['confidence'],
+          greaterThan(before['confidence'] as num));
     });
 
     test('stale 写入负证据降低置信度', () async {
