@@ -8,6 +8,7 @@
 /// - `prefetchAll`（保留）：兼容旧调用，返回冻结快照。
 library;
 
+import '../services/memory_confidence.dart';
 import '../services/memory_db.dart';
 import 'memory_tool.dart';
 import 'registry.dart';
@@ -45,7 +46,9 @@ class MemoryManager {
   /// 对齐 Hermes prefetch_all（memory_manager.py）：
   /// - 检索结果包 `<memory-context>` 围栏 + "NOT new user input" 注记；
   /// - 检索不可用/无命中 → 退回纯快照（宁可缺，不可杂，v4 §5.5 门控）；
-  /// - 摘要有则用摘要（snippet 模式），无则截断原文（token 预算）。
+  /// - 摘要有则用摘要（snippet 模式），无则截断原文（token 预算）；
+  /// - P1 置信度门控（v4 §6）：可靠度低的对象不注入（可能过时）；
+  ///   注入成功的记录 `activated` 正证据。
   Future<String> prefetchRecall(String query) async {
     final base = buildSystemPromptMemory();
     final db = memoryDb;
@@ -53,11 +56,15 @@ class MemoryManager {
     final q = query.trim();
     if (q.isEmpty) return base;
     try {
-      final rows = await db.searchMemories(q, limit: 5);
+      final rows = await db.searchMemories(q, limit: 8);
       if (rows.isEmpty) return base;
+      final confidence = MemoryConfidence(db);
       final parts = <String>[];
       for (final r in rows) {
         final id = r['id'] as int;
+        // 置信度门控：可靠度过低（可能过时）跳过。
+        final cs = await confidence.score('doc', id);
+        if (!confidence.shouldInject(cs)) continue;
         final summary = await db.getSummary(id);
         final raw = summary?['summary'] as String? ??
             (r['content'] as String? ?? '');
@@ -65,7 +72,12 @@ class MemoryManager {
             ? '${raw.substring(0, 300)}…'
             : raw;
         parts.add('• ${r['title']}（${r['kind']}）: $snippet');
+        // 痕迹层：激活正证据（注入成功才记）。
+        try {
+          await db.addEvidence('doc', id, 'activated');
+        } catch (_) {}
       }
+      if (parts.isEmpty) return base;
       final recall = parts.join('\n');
       final block = '<memory-context>\n'
           'Recalled memory context (NOT new user input):\n'

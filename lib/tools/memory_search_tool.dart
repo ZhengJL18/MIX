@@ -32,6 +32,10 @@ Future<String> memorySearchTool({
       final docId = r['id'] as int;
       final tags = await db.getTags(docId);
       final summary = await db.getSummary(docId);
+      // 置信度引擎痕迹层（v4 §6）：检索命中记录为正证据。
+      try {
+        await db.addEvidence('doc', docId, 'hit');
+      } catch (_) {}
       matches.add({
         'id': docId,
         'path': r['path'],
@@ -83,6 +87,10 @@ Future<String> memoryReadTool({
     final id = doc['id'] as int;
     final tags = await db.getTags(id);
     final summary = await db.getSummary(id);
+    // 置信度引擎痕迹层：被主动读取 → 正证据。
+    try {
+      await db.addEvidence('doc', id, 'read');
+    } catch (_) {}
     var content = doc['content'] as String? ?? '';
     final cap = (maxChars ?? 4000).clamp(500, 20000).toInt();
     var truncated = false;
