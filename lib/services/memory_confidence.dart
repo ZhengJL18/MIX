@@ -81,7 +81,7 @@ class MemoryConfidence {
     int objId, {
     double tauSeconds = 90 * 24 * 3600.0,
   }) async {
-    final rows = await db.db.rawQuery(
+    final rows = await db.db.select(
       'SELECT evidence, ts FROM memory_evidence '
       'WHERE obj_type = ? AND obj_id = ? ORDER BY ts DESC',
       [objType, objId],

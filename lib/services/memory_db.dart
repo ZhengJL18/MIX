@@ -158,9 +158,10 @@ class MemoryDB {
   /// SELECT 查询 → List<Map<String, dynamic>>。
   List<Map<String, dynamic>> _query(String sql, [List<Object?> args = const []]) {
     final result = db.select(sql, args);
+    final cols = result.columnNames;
     return [
       for (final row in result)
-        {for (final c in row.columnNames) c: row[c]},
+        {for (final c in cols) c: row[c]},
     ];
   }
 

@@ -13,7 +13,6 @@ void main() async {
   TestWidgetsFlutterBinding.ensureInitialized();
   sqfliteFfiInit();
   sessionDbFactory = databaseFactoryFfi;
-  memoryDbFactory = databaseFactoryFfi;
 
   final tmp = Directory.systemTemp.createTempSync('mix_indexer_test_');
   final segReady = await initChineseSegmenter(tmp.path);

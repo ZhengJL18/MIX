@@ -64,7 +64,7 @@ class MemorySummarizer {
   /// 候选文档：激活过 + 非 knowledge + （无摘要 或 摘要 stale）。
   Future<List<Map<String, dynamic>>> _candidates(int limit) async {
     try {
-      return await db.db.rawQuery(
+      final result = await db.db.select(
         '''
         SELECT DISTINCT d.* FROM memory_docs d
         JOIN memory_evidence e ON e.obj_id = d.id
@@ -81,6 +81,10 @@ class MemorySummarizer {
         ''',
         [limit],
       );
+      final cols = result.columnNames;
+      return [
+        for (final r in result) {for (final c in cols) c: r[c]},
+      ];
     } catch (_) {
       return const [];
     }

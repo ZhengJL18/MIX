@@ -293,11 +293,15 @@ class DebugServer {
     if (objType == null || objId == null) {
       return jsonEncode({'error': 'evidence: obj_type + obj_id required'});
     }
-    final rows = await db.db.rawQuery(
+    final result = await db.db.select(
       'SELECT evidence, ts FROM memory_evidence '
       'WHERE obj_type = ? AND obj_id = ? ORDER BY ts DESC LIMIT 50',
       [objType, objId],
     );
+    final cols = result.columnNames;
+    final rows = [
+      for (final r in result) {for (final c in cols) c: r[c]},
+    ];
     return jsonEncode({
       'obj_type': objType,
       'obj_id': objId,

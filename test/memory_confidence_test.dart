@@ -66,7 +66,7 @@ void main() {
       final id = await db.upsertDoc(path: 'd.md', title: 'D', content: 'x');
       await db.addEvidence('doc', id, 'hit');
       // 直接改 ts 模拟老化（1 年前）。
-      await db.db.rawUpdate(
+      await db.db.execute(
         'UPDATE memory_evidence SET ts = ts - ?1 WHERE obj_id = ?2',
         [365 * 24 * 3600.0, id],
       );
