@@ -1484,6 +1484,8 @@ class _ChatScreenState extends State<ChatScreen> {
       await _memoryDb!.init();
       registerMemorySearchTools(db: _memoryDb);
       registerMemoryVerifyTool(db: _memoryDb);
+      // P3 异步委派（DSH 启示2）：async_delegations 表在记忆库。
+      delegateDb = _memoryDb;
       // P1 热词提取器（自动标签管线，idf 表懒加载）。
       _memoryTagger = MemoryTagger();
       await _memoryTagger!.loadIdf(dir);
