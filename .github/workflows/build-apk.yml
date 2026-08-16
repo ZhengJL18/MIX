@@ -29,7 +29,15 @@ jobs:
         run: flutter pub get
 
       - name: Analyze
-        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee /tmp/flutter_analyze.log
+
+      # analyze 失败时把错误详情暴露到公开 annotations（日志正文需登录才能看）。
+      - name: Expose analyze details
+        if: failure()
+        run: |
+          grep -n -E "error" /tmp/flutter_analyze.log | head -60 | sed 's/^/::error::/' || true
+          echo "=====ANALYZE TAIL====="
+          tail -40 /tmp/flutter_analyze.log | sed 's/^/::error::/' || true
 
       - name: Run tests
         run: |
