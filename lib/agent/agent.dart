@@ -322,10 +322,11 @@ class MIXAgent {
     List<Map<String, dynamic>>? conversationHistory,
   }) async {
     // ── Prologue：组装 messages ──
-    // 有记忆管理器时，把冻结快照拼进 system prompt（Hermes 记忆注入）。
+    // 有记忆管理器时，把冻结快照 + 记忆检索拼进 system prompt（Hermes 记忆注入
+    // + v4 §5 prefetchRecall：热词检索记忆文档，<memory-context> 围栏注入）。
     memoryManager?.onTurnStart();
     var effectiveSystem = systemPrompt;
-    final memoryBlock = memoryManager?.prefetchAll(userMessage) ?? '';
+    final memoryBlock = await memoryManager?.prefetchRecall(userMessage) ?? '';
     if (memoryBlock.isNotEmpty) {
       effectiveSystem = '$effectiveSystem\n\n$memoryBlock';
     }

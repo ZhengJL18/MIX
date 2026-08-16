@@ -34,6 +34,8 @@ import 'refine/prompt_notes_store.dart';
 import 'refine/refine_pipeline.dart';
 import 'refine/trajectory_store.dart';
 import 'screens/settings_screen.dart';
+import 'services/chinese_segmenter.dart';
+import 'services/memory_db.dart';
 import 'services/multi_agent.dart';
 import 'services/storage_permission.dart';
 import 'services/study_engine.dart';
@@ -49,6 +51,7 @@ import 'tools/delegate_tool.dart';
 import 'tools/file_tools.dart';
 import 'tools/git_tools.dart';
 import 'tools/memory_manager.dart';
+import 'tools/memory_search_tool.dart';
 import 'tools/memory_tool.dart';
 import 'tools/moa_tool.dart';
 import 'tools/model_tools.dart';
@@ -409,6 +412,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final Map<String, String> _lastPerspectiveOutputs = {}; // 视角 → 最终发言。
   int _reasoningMsgIdx = -1; // 当前"思考中"块索引（-1 表示无）。
   MemoryManager? _memory;
+  MemoryDB? _memoryDb;
   SessionDB? _sessionDb;
   String? _currentSessionId;
   // 加载代际：每次加载递增，返回时若代际过期则丢弃结果（防并发加载串记录）。
@@ -1453,10 +1457,15 @@ class _ChatScreenState extends State<ChatScreen> {
       // 按「所有文件访问」权限设置 file_tools：cwd = documents + 外部访问开关。
       await syncExternalAccessPermission(fallbackCwd: dir);
     } catch (_) {}
-    // 记忆存储。
+    // 记忆存储（冻结快照）。
     try {
       registerMemoryTool(baseDir: dir);
-      _memory = MemoryManager(store: memoryStore!);
+      // P0 记忆检索（v4 设计稿）：分词器 + 记忆库 + 检索工具。
+      await initChineseSegmenter(dir);
+      _memoryDb = MemoryDB(dbPath: '$dir/memory.db');
+      await _memoryDb!.init();
+      registerMemorySearchTools(db: _memoryDb);
+      _memory = MemoryManager(store: memoryStore!, memoryDb: _memoryDb);
     } catch (_) {}
     // 自定义部门（公司模式）。
     try {

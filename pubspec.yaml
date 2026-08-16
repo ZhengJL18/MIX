@@ -51,6 +51,8 @@ dependencies:
   package_info_plus: ^8.3.0
   app_installer_plus: ^1.2.0
   re_editor: ^0.10.0
+  # 中文分词（P0 记忆检索：Python jieba 的纯 Dart 移植，MIT）
+  dart_jieba: ^1.0.1
 
   # printnotes 渲染引擎 + UI 子系统依赖（markdown_widget 引擎在 lib/printnotes/markdown/ 内自包含）
   flutter_highlight: ^0.7.0
@@ -112,8 +114,12 @@ flutter:
 
   # KaTeX（md→PDF 离线渲染用）例外打包进 APK：约 600KB，换来回完全离线
   # 的 md_to_pdf（WebView 本地加载，不依赖 CDN）。Obsidian 式稳定导出。
+  # 记忆子系统数据资产（v4 设计稿 §11）：dart_jieba 分词词典（包未声明
+  # flutter assets，需自带）+ jieba idf.txt 热词权重表（P1 自动标签用）。
   assets:
     - assets/katex/
+    - assets/dict.dgz
+    - assets/jieba_idf.txt
 
   # To add assets to your application, add an assets section, like this:
   # assets:

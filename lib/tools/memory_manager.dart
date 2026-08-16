@@ -1,29 +1,31 @@
 /// 对应 `ref/hermes-agent/agent/memory_manager.py`（像素级复刻，核心逻辑）。
 ///
-/// 协调内置 provider（MemoryStore）+ 至多一个外部 provider。
+/// 协调内置 provider（MemoryStore）+ 记忆库（MemoryDB 热词检索）。
 ///
-/// ## Dart 适配
-/// - 后台线程/外部 provider/会话生命周期钩子：手机 App 单 isolate，省略。
-///   聚焦核心：内存注入 + 工具路由 + 状态。
-/// - Hermes 的记忆注入 = MemoryStore 的 systemPromptSnapshot 进 system prompt
-///   （每会话加载一次），非每 turn 检索。prefetchAll 简化为返回快照。
+/// ## P0 升级（v4 设计稿 §5/§6）
+/// - `prefetchRecall`（新）：冻结快照 + 记忆文档热词检索合成注入块。
+///   对齐 Hermes prefetch_all：检索结果包 `<memory-context>` 围栏注入。
+/// - `prefetchAll`（保留）：兼容旧调用，返回冻结快照。
 library;
 
+import '../services/memory_db.dart';
 import 'memory_tool.dart';
 import 'registry.dart';
 
-/// 协调记忆提供者的管理器（手机版：内置 MemoryStore 单 provider）。
+/// 协调记忆提供者的管理器。
 class MemoryManager {
-  /// 内置记忆存储。
+  /// 内置记忆存储（冻结快照）。
   MemoryStore store;
 
-  MemoryManager({required this.store});
+  /// 记忆库（P0：热词检索来源）。
+  MemoryDB? memoryDb;
+
+  MemoryManager({required this.store, this.memoryDb});
 
   /// 构建注入 system prompt 的记忆块（memory + user）。
   ///
-  /// 用**冻结快照**（formatForSystemPrompt 语义）：load 时的状态，会话中写入
-  /// 不影响 —— 保持 system prompt 跨 turn 稳定，保住 prefix cache
-  /// （Hermes 设计：新记忆下个会话生效）。空块跳过。
+  /// 用**冻结快照**：load 时的状态，会话中写入不影响 —— 保持 system prompt
+  /// 跨 turn 稳定，保住 prefix cache（Hermes 设计：新记忆下个会话生效）。
   String buildSystemPromptMemory() {
     final parts = <String>[];
     final mem = store.formatForSystemPrompt('memory');
@@ -33,12 +35,46 @@ class MemoryManager {
     return parts.join('\n\n');
   }
 
-  /// 预取记忆上下文（简化：返回全部记忆快照）。
-  ///
-  /// Hermes 按 query 检索相关记忆；手机版 App 记忆量小（2200+1375 字符上限），
-  /// 直接返回全部即可，模型自己筛。query 保留用于未来检索实现。
+  /// 预取记忆上下文（兼容路径：返回全部记忆快照）。
   String prefetchAll(String query) {
     return buildSystemPromptMemory();
+  }
+
+  /// 异步预取（P0 真实现）：冻结快照 + 记忆文档热词检索。
+  ///
+  /// 对齐 Hermes prefetch_all（memory_manager.py）：
+  /// - 检索结果包 `<memory-context>` 围栏 + "NOT new user input" 注记；
+  /// - 检索不可用/无命中 → 退回纯快照（宁可缺，不可杂，v4 §5.5 门控）；
+  /// - 摘要有则用摘要（snippet 模式），无则截断原文（token 预算）。
+  Future<String> prefetchRecall(String query) async {
+    final base = buildSystemPromptMemory();
+    final db = memoryDb;
+    if (db == null) return base;
+    final q = query.trim();
+    if (q.isEmpty) return base;
+    try {
+      final rows = await db.searchMemories(q, limit: 5);
+      if (rows.isEmpty) return base;
+      final parts = <String>[];
+      for (final r in rows) {
+        final id = r['id'] as int;
+        final summary = await db.getSummary(id);
+        final raw = summary?['summary'] as String? ??
+            (r['content'] as String? ?? '');
+        final snippet = raw.length > 300
+            ? '${raw.substring(0, 300)}…'
+            : raw;
+        parts.add('• ${r['title']}（${r['kind']}）: $snippet');
+      }
+      final recall = parts.join('\n');
+      final block = '<memory-context>\n'
+          'Recalled memory context (NOT new user input):\n'
+          '$recall\n'
+          '</memory-context>';
+      return base.isEmpty ? block : '$base\n\n$block';
+    } catch (_) {
+      return base;
+    }
   }
 
   /// 路由工具调用到记忆 store（对应 provider.handle_tool_call）。
@@ -58,7 +94,7 @@ class MemoryManager {
     return toolError("No memory provider handles tool '$toolName'");
   }
 
-  /// 会话结束/新 turn 钩子（手机版：重置合并失败计数）。
+  /// 会话结束/新 turn 钩子。
   void onTurnStart() {
     store.resetConsolidationFailures();
   }
