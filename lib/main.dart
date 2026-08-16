@@ -39,6 +39,7 @@ import 'services/goal_store.dart';
 import 'services/memory_db.dart';
 import 'services/memory_indexer.dart';
 import 'services/memory_learning.dart';
+import 'services/memory_profile.dart';
 import 'services/memory_summarizer.dart';
 import 'services/memory_tagger.dart';
 import 'services/multi_agent.dart';
@@ -426,6 +427,7 @@ class _ChatScreenState extends State<ChatScreen> {
   MemorySummarizer? _memorySummarizer;
   GoalStore? _goalStore;
   MemoryLearning? _memoryLearning;
+  MemoryProfileProjector? _memoryProfile;
   SessionDB? _sessionDb;
   String? _currentSessionId;
   // 加载代际：每次加载递增，返回时若代际过期则丢弃结果（防并发加载串记录）。
@@ -959,6 +961,14 @@ class _ChatScreenState extends State<ChatScreen> {
       final s = _memorySummarizer;
       if (s != null) {
         unawaited(s.summarizeActivated());
+      }
+    } catch (_) {}
+    // P4 画像投影（v4 §6.3）：回合后刷新学习状态投影到记忆库
+    // （证据驱动、零 LLM；agent 可 memory_read 读到最新学习全貌）。
+    try {
+      final p = _memoryProfile;
+      if (p != null) {
+        unawaited(p.saveToMemory());
       }
     } catch (_) {}
   }
@@ -1558,6 +1568,12 @@ class _ChatScreenState extends State<ChatScreen> {
       if (md != null && _studyEngine != null) {
         _memoryLearning = MemoryLearning(db: md, studyEngine: _studyEngine);
         registerStudyStatusTool(learning: _memoryLearning);
+        // 画像投影（证据驱动，回合后刷新）。
+        _memoryProfile = MemoryProfileProjector(
+          learning: _memoryLearning!,
+          db: md,
+        );
+        await _memoryProfile!.saveToMemory();
       }
     } catch (_) {}
     // P1 记忆索引器（v4 §5 确定性图建构）：自动标签 + 知识点边。
