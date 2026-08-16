@@ -58,6 +58,7 @@ import 'tools/goal_tool.dart';
 import 'tools/memory_manager.dart';
 import 'tools/memory_search_tool.dart';
 import 'tools/memory_tool.dart';
+import 'tools/memory_verify_tool.dart';
 import 'tools/moa_tool.dart';
 import 'tools/model_tools.dart';
 import 'tools/notes_tools.dart';
@@ -1482,6 +1483,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _memoryDb = MemoryDB(dbPath: '$dir/memory.db');
       await _memoryDb!.init();
       registerMemorySearchTools(db: _memoryDb);
+      registerMemoryVerifyTool(db: _memoryDb);
       // P1 热词提取器（自动标签管线，idf 表懒加载）。
       _memoryTagger = MemoryTagger();
       await _memoryTagger!.loadIdf(dir);
