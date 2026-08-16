@@ -46,16 +46,29 @@ jobs:
 
       # 测试失败时把详情以 ::error:: 写入 annotations（日志正文需登录才能看，
       # 这里把关键行暴露到可匿名读取的 annotations 上，方便诊断 CI）。
-      # 注意：失败可能是断言失败（Expected/Actual）也可能是异常（Exception/
-      # 堆栈），flutter test 的 compact reporter 会把失败详情集中打印在日志
-      # 尾部，所以同时抓 grep 上下文 + tail 尾部。
       - name: Expose test failure details
         if: failure()
         run: |
-          grep -n -A 30 -E "\[E\]|Expected:|Actual:|Which:|Exception|Test failed|type '|test/.*\(failed\)" /tmp/flutter_test.log \
-            | head -200 | sed 's/^/::error::/' || true
-          echo "=====TAIL====="
-          tail -120 /tmp/flutter_test.log | sed 's/^/::error::/' || true
+          python3 - <<'EOF'
+          import re
+          try:
+              log = open('/tmp/flutter_test.log').read()
+          except FileNotFoundError:
+              log = ''
+          chunks = []
+          # compact reporter 的失败块（[E] 开头，到空行结束）。
+          for m in re.finditer(r'\[E\].*?(?=\n\n|\Z)', log, re.S):
+              chunks.append(m.group(0)[:1600])
+          # 编译/加载失败。
+          if not chunks:
+              for m in re.finditer(r'(Failed to load|Compilation failed|Error:).*?(?=\n\n|\Z)', log, re.S):
+                  chunks.append(m.group(0)[:1600])
+          if not chunks:
+              tail = log[-4000:]
+              chunks.append(tail)
+          for i, c in enumerate(chunks[:10]):
+              print(f'::error::--- test failure {i+1} ---\n{c}')
+          EOF
 
       - name: Upload test log
         if: always()
