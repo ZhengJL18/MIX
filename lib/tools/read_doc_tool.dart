@@ -13,6 +13,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 
+import '../services/local_doc_parser.dart';
 import 'convert_tools.dart' show cloudExtractBytes, cloudExtractRequest;
 import 'registry.dart';
 
@@ -297,8 +298,17 @@ Future<String> readDocTool(String path, {int maxChars = _maxDefault}) async {
         final task = (type == 'tar' || type == 'gzip') ? 'tar_text' : 'zip_text';
         return _cloudFile(path, task, maxChars);
       }
-      return _handleArchive(await f.readAsBytes(), type, maxChars);
+      final bytes = await f.readAsBytes();
+      // 本地 OOXML → 结构化 Markdown（docx/pptx/xlsx 优先）。
+      if (type == 'zip') {
+        final officeMd = await parseOfficeToMarkdown(bytes);
+        if (officeMd != null) return _truncate(officeMd, maxChars);
+      }
+      return _handleArchive(bytes, type, maxChars);
     case 'pdf':
+      // 本地纯文字提取优先（pdfrx/pdfium）；失败 fallback 云端。
+      final localPdf = await pdfTextToMarkdown(path, maxChars: maxChars);
+      if (localPdf != null) return localPdf;
       return _cloudFile(path, 'pdf_text', maxChars);
     case 'sqlite':
       return _cloudFile(path, 'sqlite_text', maxChars);
@@ -319,8 +329,9 @@ const Map<String, dynamic> _readDocSchema = {
   'description':
       'Read any file and return its text content (magic-byte detection, no '
       'extension needed). Text/UTF-16/GBK, JSON (pretty-printed), tar/gzip/zip '
-      '(including docx/xlsx/epub) are read locally in pure Dart; PDF, SQLite, '
-      'OCR and non-UTF8 text go to the cloud extract server. Use whenever '
+      'are read locally in pure Dart; DOCX/PPTX/XLSX convert to structured '
+      'Markdown locally; PDF text extracted locally (pdfium) with cloud '
+      'fallback; SQLite and OCR go to the cloud extract server. Use whenever '
       'read_file fails on a binary or non-UTF8 file. For images use '
       'vision_analyze instead.',
   'parameters': {
