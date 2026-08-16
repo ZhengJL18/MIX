@@ -1,8 +1,12 @@
 /// 记忆库（v4 设计稿 §3/§4/§6）。
 ///
-/// 多记忆文档 + 确定性图建构的存储层，与 session_db 同库（sqflite）。
-/// P0 范围：memory_docs / memory_tags / memory_links / memory_doc_summaries /
-/// memory_evidence + memory_docs_fts（中文预分词，dart_jieba 分词后喂入）。
+/// 多记忆文档 + 确定性图建构的存储层。**sqlite3 3.x 自带 SQLite（编译含
+/// SQLITE_ENABLE_FTS5）**——v4 设计稿 §2 方案 A：Android 系统 SQLite 从未
+/// 启用 FTS5（AOSP 铁证），sqflite 走系统库导致 FTS5 真机不可用；memory.db
+/// 独立用 sqlite3 3.x 捆绑 SQLite，FTS5 稳定可用。
+///
+/// 表：memory_docs / memory_tags / memory_links / memory_doc_summaries /
+/// memory_evidence / goals / async_delegations + memory_docs_fts。
 ///
 /// ## FTS 策略（v4 §7 + 嵌入式搜索引擎调研）
 /// - 不用 external-content 触发器（触发器里无法跑 Dart 分词）→ 普通 FTS5 表，
@@ -10,19 +14,15 @@
 /// - 中文：写入/查询两侧都用 dart_jieba 分词后空格连接（unicode61 对连续汉字
 ///   只出一个 token，必须预分词）。
 /// - 排序：FTS5 原生 `bm25()`（负分，越小越相关，ORDER BY ASC）。
-/// - ⚠️ FTS5 工程风险（调研纠错）：Android 系统 SQLite 从未启用 FTS5，
-///   sqflite 走系统库 → FTS5 可用性因设备而异；不可用时自动降级 LIKE。
+/// - LIKE 降级保留（极端兜底）。
 library;
 
-import 'package:sqflite/sqflite.dart';
+import 'package:sqlite3/sqlite3.dart';
 
 import '../utils/levenshtein.dart';
 import 'chinese_segmenter.dart';
 
-/// 记忆库工厂（测试用 ffi，与 session_db 共用注入点）。
-DatabaseFactory? memoryDbFactory;
-
-/// 记忆库。
+/// 记忆库（sqlite3 3.x 自带 FTS5）。
 class MemoryDB {
   Database? _db;
   final String dbPath;
@@ -38,31 +38,25 @@ class MemoryDB {
     return _db!;
   }
 
-  /// FTS5 是否可用（不可用时检索降级 LIKE）。
+  /// FTS5 是否可用（sqlite3 3.x 自带，应为 true；失败才降级 LIKE）。
   bool get ftsAvailable => _ftsAvailable;
 
-  /// 打开数据库（建表 + FTS）。
+  /// 打开数据库（sqlite3 3.x 自带 SQLite，建表 + FTS）。
   Future<void> init() async {
-    final factory = memoryDbFactory ?? databaseFactory;
-    final db = await factory.openDatabase(
-      dbPath,
-      options: OpenDatabaseOptions(
-        version: 1,
-        // 开启外键约束（ON DELETE CASCADE 生效；sqflite 默认关闭）。
-        onConfigure: (db) async {
-          await db.execute('PRAGMA foreign_keys = ON');
-        },
-        onCreate: (db, version) async {
-          await _createSchema(db);
-        },
-      ),
-    );
-    _db = db;
-    await _ensureFts(db);
+    try {
+      final db = sqlite3.open(dbPath);
+      _db = db;
+      db.execute('PRAGMA foreign_keys = ON');
+      _createSchema(db);
+      _ensureFts(db);
+    } catch (_) {
+      _db = null;
+      rethrow;
+    }
   }
 
-  Future<void> _createSchema(Database db) async {
-    await db.execute('''
+  void _createSchema(Database db) {
+    db.execute('''
       CREATE TABLE IF NOT EXISTS memory_docs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         path TEXT UNIQUE NOT NULL,
@@ -74,8 +68,8 @@ class MemoryDB {
         importance REAL NOT NULL DEFAULT 0.5
       )
     ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_memory_docs_kind ON memory_docs(kind)');
-    await db.execute('''
+    db.execute('CREATE INDEX IF NOT EXISTS idx_memory_docs_kind ON memory_docs(kind)');
+    db.execute('''
       CREATE TABLE IF NOT EXISTS memory_tags (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         doc_id INTEGER NOT NULL REFERENCES memory_docs(id) ON DELETE CASCADE,
@@ -84,8 +78,8 @@ class MemoryDB {
         UNIQUE(doc_id, tag)
       )
     ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_memory_tags_tag ON memory_tags(tag)');
-    await db.execute('''
+    db.execute('CREATE INDEX IF NOT EXISTS idx_memory_tags_tag ON memory_tags(tag)');
+    db.execute('''
       CREATE TABLE IF NOT EXISTS memory_links (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         src INTEGER NOT NULL REFERENCES memory_docs(id) ON DELETE CASCADE,
@@ -95,7 +89,7 @@ class MemoryDB {
         UNIQUE(src, dst, kind)
       )
     ''');
-    await db.execute('''
+    db.execute('''
       CREATE TABLE IF NOT EXISTS memory_doc_summaries (
         doc_id INTEGER PRIMARY KEY REFERENCES memory_docs(id) ON DELETE CASCADE,
         summary TEXT NOT NULL,
@@ -103,7 +97,7 @@ class MemoryDB {
         updated_at INTEGER NOT NULL
       )
     ''');
-    await db.execute('''
+    db.execute('''
       CREATE TABLE IF NOT EXISTS memory_evidence (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         obj_type TEXT NOT NULL,
@@ -112,9 +106,9 @@ class MemoryDB {
         ts REAL NOT NULL
       )
     ''');
-    await db.execute('CREATE INDEX IF NOT EXISTS idx_evidence_obj ON memory_evidence(obj_type, obj_id)');
+    db.execute('CREATE INDEX IF NOT EXISTS idx_evidence_obj ON memory_evidence(obj_type, obj_id)');
     // Goal 系统（DSH 启示 1，v4 §3）：持久目标 + 自动续跑。
-    await db.execute('''
+    db.execute('''
       CREATE TABLE IF NOT EXISTS goals (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         objective TEXT NOT NULL,
@@ -129,7 +123,7 @@ class MemoryDB {
       )
     ''');
     // 异步委派（DSH 启示 2，Hermes async_delegations 表补全）。
-    await db.execute('''
+    db.execute('''
       CREATE TABLE IF NOT EXISTS async_delegations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         parent_session_id TEXT,
@@ -143,10 +137,10 @@ class MemoryDB {
     ''');
   }
 
-  /// FTS5 建表（普通表，代码同步分词列）。不可用则静默降级。
-  Future<void> _ensureFts(Database db) async {
+  /// FTS5 建表（普通表，代码同步分词列）。sqlite3 3.x 自带 FTS5 → 应成功。
+  void _ensureFts(Database db) {
     try {
-      await db.execute('''
+      db.execute('''
         CREATE VIRTUAL TABLE IF NOT EXISTS memory_docs_fts USING fts5(
           title_seg, content_seg, tags_seg
         )
@@ -155,6 +149,19 @@ class MemoryDB {
     } catch (_) {
       _ftsAvailable = false;
     }
+  }
+
+  // ------------------------------------------------------------------
+  // 查询辅助（Row → Map）
+  // ------------------------------------------------------------------
+
+  /// SELECT 查询 → List<Map<String, dynamic>>。
+  List<Map<String, dynamic>> _query(String sql, [List<Object?> args = const []]) {
+    final result = db.select(sql, args);
+    return [
+      for (final row in result)
+        {for (final c in row.columnNames) c: row[c]},
+    ];
   }
 
   // ------------------------------------------------------------------
@@ -175,83 +182,68 @@ class MemoryDB {
     int? mtime,
   }) async {
     final now = mtime ?? DateTime.now().millisecondsSinceEpoch;
-    final existing = await db.query(
-      'memory_docs',
-      where: 'path = ?',
-      whereArgs: [path],
-      limit: 1,
+    final existing = _query(
+      'SELECT id FROM memory_docs WHERE path = ? LIMIT 1',
+      [path],
     );
     final int id;
     if (existing.isEmpty) {
-      id = await db.insert('memory_docs', {
-        'path': path,
-        'title': title,
-        'kind': kind,
-        'content': content,
-        'mtime': now,
-        'frozen_snapshot': frozenSnapshot,
-        'importance': importance,
-      });
+      db.execute(
+        'INSERT INTO memory_docs'
+        '(path, title, kind, content, mtime, frozen_snapshot, importance) '
+        'VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [path, title, kind, content, now, frozenSnapshot, importance],
+      );
+      id = db.lastInsertRowId;
     } else {
       id = existing.first['id'] as int;
-      await db.update(
-        'memory_docs',
-        {
-          'title': title,
-          'kind': kind,
-          'content': content,
-          'mtime': now,
-          'frozen_snapshot': frozenSnapshot,
-          'importance': importance,
-        },
-        where: 'id = ?',
-        whereArgs: [id],
+      db.execute(
+        'UPDATE memory_docs SET title = ?, kind = ?, content = ?, mtime = ?, '
+        'frozen_snapshot = ?, importance = ? WHERE id = ?',
+        [title, kind, content, now, frozenSnapshot, importance, id],
       );
     }
-    await _syncFts(id, title, content);
+    _syncFts(id, title, content);
     return id;
   }
 
   /// 更新文档重要度（置信度引擎 P1 用）。
   Future<void> updateImportance(int docId, double importance) async {
-    await db.update(
-      'memory_docs',
-      {'importance': importance},
-      where: 'id = ?',
-      whereArgs: [docId],
+    db.execute(
+      'UPDATE memory_docs SET importance = ? WHERE id = ?',
+      [importance, docId],
     );
   }
 
-  /// 删除文档（手动清理关联，兼容外键未开启的旧库；FTS 同步删除）。
+  /// 删除文档（手动清理关联；FTS 同步删除）。
   Future<void> deleteDoc(int id) async {
-    await db.delete('memory_evidence',
-        where: 'obj_type = ? AND obj_id = ?', whereArgs: ['doc', id]);
-    await db.delete('memory_doc_summaries', where: 'doc_id = ?', whereArgs: [id]);
-    await db.delete('memory_tags', where: 'doc_id = ?', whereArgs: [id]);
-    await db.delete('memory_links', where: 'src = ? OR dst = ?', whereArgs: [id, id]);
-    await db.delete('memory_docs', where: 'id = ?', whereArgs: [id]);
+    db.execute(
+      'DELETE FROM memory_evidence WHERE obj_type = ? AND obj_id = ?',
+      ['doc', id],
+    );
+    db.execute('DELETE FROM memory_doc_summaries WHERE doc_id = ?', [id]);
+    db.execute('DELETE FROM memory_tags WHERE doc_id = ?', [id]);
+    db.execute('DELETE FROM memory_links WHERE src = ? OR dst = ?', [id, id]);
+    db.execute('DELETE FROM memory_docs WHERE id = ?', [id]);
     if (_ftsAvailable) {
       try {
-        await db.rawDelete(
-          'DELETE FROM memory_docs_fts WHERE rowid = ?',
-          [id],
-        );
+        db.execute('DELETE FROM memory_docs_fts WHERE rowid = ?', [id]);
       } catch (_) {}
     }
   }
 
-  Future<void> _syncFts(int id, String title, String content) async {
+  void _syncFts(int id, String title, String content) {
     if (!_ftsAvailable) return;
-    final tags = await getTags(id);
+    final tags = getTagsSync(id);
     try {
-      await db.rawDelete('DELETE FROM memory_docs_fts WHERE rowid = ?', [id]);
+      db.execute('DELETE FROM memory_docs_fts WHERE rowid = ?', [id]);
       final titleSeg = segmentToFts(title);
       final contentSeg = segmentToFts(content);
       final tagsSeg = segmentToFts(tags.join(' '));
       if ((titleSeg ?? '').isNotEmpty ||
           (contentSeg ?? '').isNotEmpty ||
           (tagsSeg ?? '').isNotEmpty) {
-        await db.rawInsert(
+        db.execute(
           'INSERT INTO memory_docs_fts(rowid, title_seg, content_seg, tags_seg) '
           'VALUES (?, ?, ?, ?)',
           [id, titleSeg ?? '', contentSeg ?? '', tagsSeg ?? ''],
@@ -268,7 +260,7 @@ class MemoryDB {
 
   /// 热词检索记忆文档（v4 §5.1：FTS5 bm25 + OR 连接，LIKE 兜底）。
   ///
-  /// 返回按相关度排序的文档（含匹配标签）。summary 由调用方按需取。
+  /// 返回按相关度排序的文档。summary 由调用方按需取。
   Future<List<Map<String, dynamic>>> searchMemories(
     String query, {
     int limit = 10,
@@ -291,23 +283,19 @@ class MemoryDB {
           }
           sql += ' ORDER BY bm25(memory_docs_fts) ASC LIMIT ?';
           args.add(limit);
-          final rows = await db.rawQuery(sql, args);
+          final rows = _query(sql, args);
           if (rows.isNotEmpty) {
             return rows;
           }
           // FTS 无命中 → typo 容错展开（v4 §12：记错名字也能搜到；
           // 在自动标签库里找编辑距离相近的标签 OR 展开）。
-          final typoExpr = await _expandTypoQuery(query);
+          final typoExpr = _expandTypoQuerySync(query);
           if (typoExpr != null && typoExpr != matchExpr) {
-            final typoArgs = <Object?>[typoExpr];
             final typoSql = 'SELECT d.* FROM memory_docs d '
                 'JOIN memory_docs_fts f ON f.rowid = d.id '
                 'WHERE memory_docs_fts MATCH ? '
                 'ORDER BY bm25(memory_docs_fts) ASC LIMIT ?';
-            final typoRows = await db.rawQuery(
-              typoSql,
-              [...typoArgs, limit],
-            );
+            final typoRows = _query(typoSql, [typoExpr, limit]);
             if (typoRows.isNotEmpty) {
               return typoRows;
             }
@@ -327,18 +315,17 @@ class MemoryDB {
     }
     sql += ' ORDER BY mtime DESC LIMIT ?';
     args.add(limit);
-    return db.rawQuery(sql, args);
+    return _query(sql, args);
   }
 
   /// typo 容错展开（v4 §12）：FTS 无命中时，在自动标签库（memory_tags）
   /// 里找与查询词编辑距离 ≤ 容错阈值（词长分级）的相近标签，OR 展开重查。
-  /// 无相近标签返回 null。
-  Future<String?> _expandTypoQuery(String query) async {
+  String? _expandTypoQuerySync(String query) {
     final words = segmentWords(query);
     if (words.isEmpty) return null;
     List<String> tags;
     try {
-      final tagRows = await db.rawQuery('SELECT DISTINCT tag FROM memory_tags');
+      final tagRows = _query('SELECT DISTINCT tag FROM memory_tags');
       tags = [for (final r in tagRows) r['tag'] as String];
     } catch (_) {
       return null;
@@ -365,7 +352,7 @@ class MemoryDB {
     String tag, {
     int limit = 20,
   }) async {
-    final rows = await db.rawQuery(
+    return _query(
       '''
       SELECT d.* FROM memory_docs d
       JOIN memory_tags t ON t.doc_id = d.id
@@ -375,7 +362,6 @@ class MemoryDB {
       ''',
       [tag, limit],
     );
-    return rows;
   }
 
   // ------------------------------------------------------------------
@@ -384,36 +370,34 @@ class MemoryDB {
 
   /// 给文档添加标签（P1 自动标签管线用）。
   Future<void> addTag(int docId, String tag, {double score = 1.0}) async {
-    await db.insert(
-      'memory_tags',
-      {'doc_id': docId, 'tag': tag, 'score': score},
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    db.execute(
+      'INSERT OR REPLACE INTO memory_tags(doc_id, tag, score) VALUES (?, ?, ?)',
+      [docId, tag, score],
     );
     // 标签变化 → 同步 FTS（tags_seg）。
     if (_ftsAvailable) {
-      final doc = await getDoc(docId);
+      final doc = getDocSync(docId);
       if (doc != null) {
-        await _syncFts(docId, doc['title'] as String, doc['content'] as String);
+        _syncFts(docId, doc['title'] as String, doc['content'] as String);
       }
     }
   }
 
   /// 移除标签。
   Future<void> removeTag(int docId, String tag) async {
-    await db.delete(
-      'memory_tags',
-      where: 'doc_id = ? AND tag = ?',
-      whereArgs: [docId, tag],
+    db.execute(
+      'DELETE FROM memory_tags WHERE doc_id = ? AND tag = ?',
+      [docId, tag],
     );
   }
 
   /// 文档全部标签（按 score 降序）。
-  Future<List<String>> getTags(int docId) async {
-    final rows = await db.query(
-      'memory_tags',
-      where: 'doc_id = ?',
-      whereArgs: [docId],
-      orderBy: 'score DESC',
+  Future<List<String>> getTags(int docId) async => getTagsSync(docId);
+
+  List<String> getTagsSync(int docId) {
+    final rows = _query(
+      'SELECT tag FROM memory_tags WHERE doc_id = ? ORDER BY score DESC',
+      [docId],
     );
     return [for (final r in rows) r['tag'] as String];
   }
@@ -426,20 +410,19 @@ class MemoryDB {
     double weight = 1.0,
   }) async {
     if (src == dst) return;
-    final existing = await db.query(
-      'memory_links',
-      where: 'src = ? AND dst = ? AND kind = ?',
-      whereArgs: [src, dst, kind],
-      limit: 1,
+    final existing = _query(
+      'SELECT id FROM memory_links WHERE src = ? AND dst = ? AND kind = ? '
+      'LIMIT 1',
+      [src, dst, kind],
     );
     if (existing.isEmpty) {
-      await db.insert(
-        'memory_links',
-        {'src': src, 'dst': dst, 'kind': kind, 'weight': weight},
+      db.execute(
+        'INSERT INTO memory_links(src, dst, kind, weight) VALUES (?, ?, ?, ?)',
+        [src, dst, kind, weight],
       );
     } else {
       // Hebbian 强化：共访问/采纳 → 边权 +weight。
-      await db.rawUpdate(
+      db.execute(
         'UPDATE memory_links SET weight = weight + ?1 '
         'WHERE src = ?2 AND dst = ?3 AND kind = ?4',
         [weight, src, dst, kind],
@@ -450,10 +433,6 @@ class MemoryDB {
   /// 扩散激活（v4 设计稿 §6.2，TAIPANBOX/engram `graph.py` 算法）：
   /// 从种子文档沿 links 图 BFS 扩散，每跳能量衰减
   /// `decay × min(边权, 1.0)`（Hebbian 边权参与）。
-  ///
-  /// 返回按累计激活能量降序的候选 `{'id': docId, 'energy': energy}`——
-  /// 热词定位种子后，沿联想边带出**不含关键词**的关联记忆
-  /// （"像人一样联想"：想起一件事 → 激活关联的事）。
   Future<List<Map<String, dynamic>>> spreadActivate(
     List<int> seedIds, {
     int maxDepth = 2,
@@ -462,7 +441,6 @@ class MemoryDB {
   }) async {
     if (seedIds.isEmpty) return const [];
     final energy = <int, double>{};
-    // BFS 队列：(docId, hop, energy)。
     final queue = <(int, int, double)>[
       for (final s in seedIds) (s, 0, 1.0),
     ];
@@ -474,7 +452,7 @@ class MemoryDB {
       energy[id] = (energy[id] ?? 0) + e;
       if (hop >= maxDepth) continue;
       try {
-        final neighbors = await getNeighbors(id, limit: 20);
+        final neighbors = getNeighborsSync(id, limit: 20);
         for (final n in neighbors) {
           final nid = n['id'] as int;
           if (visited.contains(nid)) continue;
@@ -496,14 +474,18 @@ class MemoryDB {
   }
 
   /// 目标文档的直接邻居（P1 扩散激活用）。
-  ///
-  /// 图是无向的（Hebbian 关联边）→ 双向查询：邻居是"另一端"的文档，
-  /// 无论边方向是 src→dst 还是 dst→src。
   Future<List<Map<String, dynamic>>> getNeighbors(
     int docId, {
     String? kind,
     int limit = 20,
-  }) async {
+  }) async =>
+      getNeighborsSync(docId, kind: kind, limit: limit);
+
+  List<Map<String, dynamic>> getNeighborsSync(
+    int docId, {
+    String? kind,
+    int limit = 20,
+  }) {
     var sql = '''
       SELECT d.*, l.kind AS link_kind, l.weight AS link_weight
       FROM memory_links l
@@ -517,49 +499,46 @@ class MemoryDB {
     }
     sql += ' ORDER BY l.weight DESC LIMIT ?';
     args.add(limit);
-    return db.rawQuery(sql, args);
+    return _query(sql, args);
   }
 
-  /// 记录证据事件（置信度引擎痕迹层，P1 用；P0 先落表）。
+  /// 记录证据事件（置信度引擎痕迹层）。
   Future<void> addEvidence(
     String objType,
     int objId,
     String evidence,
   ) async {
     final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    await db.insert('memory_evidence', {
-      'obj_type': objType,
-      'obj_id': objId,
-      'evidence': evidence,
-      'ts': now,
-    });
+    db.execute(
+      'INSERT INTO memory_evidence(obj_type, obj_id, evidence, ts) '
+      'VALUES (?, ?, ?, ?)',
+      [objType, objId, evidence, now],
+    );
   }
 
-  /// 写摘要（激活即总结，P2 用；表先建）。
+  /// 写摘要（激活即总结，P2 用）。
   Future<void> upsertSummary(
     int docId,
     String summary,
     int docMtime,
   ) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    await db.insert(
-      'memory_doc_summaries',
-      {'doc_id': docId, 'summary': summary, 'doc_mtime': docMtime, 'updated_at': now},
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    db.execute(
+      'INSERT OR REPLACE INTO memory_doc_summaries'
+      '(doc_id, summary, doc_mtime, updated_at) VALUES (?, ?, ?, ?)',
+      [docId, summary, docMtime, now],
     );
   }
 
   /// 读摘要。文档 mtime 变更后摘要视为 stale（返回 null）。
   Future<Map<String, dynamic>?> getSummary(int docId) async {
-    final rows = await db.query(
-      'memory_doc_summaries',
-      where: 'doc_id = ?',
-      whereArgs: [docId],
-      limit: 1,
+    final rows = _query(
+      'SELECT * FROM memory_doc_summaries WHERE doc_id = ? LIMIT 1',
+      [docId],
     );
     if (rows.isEmpty) return null;
     final summary = rows.first;
-    final doc = await getDoc(docId);
+    final doc = getDocSync(docId);
     if (doc == null) return null;
     final docMtime = doc['mtime'] as int? ?? 0;
     final summaryMtime = summary['doc_mtime'] as int? ?? 0;
@@ -571,12 +550,12 @@ class MemoryDB {
   }
 
   /// 按 id 读文档。
-  Future<Map<String, dynamic>?> getDoc(int id) async {
-    final rows = await db.query(
-      'memory_docs',
-      where: 'id = ?',
-      whereArgs: [id],
-      limit: 1,
+  Future<Map<String, dynamic>?> getDoc(int id) async => getDocSync(id);
+
+  Map<String, dynamic>? getDocSync(int id) {
+    final rows = _query(
+      'SELECT * FROM memory_docs WHERE id = ? LIMIT 1',
+      [id],
     );
     return rows.isEmpty ? null : rows.first;
   }
@@ -594,7 +573,7 @@ class MemoryDB {
     }
     sql += ' ORDER BY mtime DESC LIMIT ?';
     args.add(limit);
-    return db.rawQuery(sql, args);
+    return _query(sql, args);
   }
 
   /// 关闭数据库。
@@ -602,7 +581,7 @@ class MemoryDB {
     if (_closed) return;
     _closed = true;
     if (_db != null) {
-      await _db!.close();
+      _db!.dispose();
       _db = null;
     }
   }

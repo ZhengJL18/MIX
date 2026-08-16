@@ -2,15 +2,12 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mix/services/memory_db.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   late Directory tmp;
   late MemoryDB db;
 
   setUpAll(() {
-    sqfliteFfiInit();
-    memoryDbFactory = databaseFactoryFfi;
   });
 
   setUp(() async {
@@ -119,7 +116,7 @@ void main() {
       final id = await db.upsertDoc(path: 'e.md', title: 'E', content: 'c');
       await db.addEvidence('doc', id, 'adopted');
       await db.addEvidence('doc', id, 'hit');
-      final rows = await db.db.rawQuery(
+      final rows = await db.db.select(
         'SELECT * FROM memory_evidence WHERE obj_type = ? AND obj_id = ?',
         ['doc', id],
       );
@@ -152,17 +149,17 @@ void main() {
       await db.addEvidence('doc', id, 'hit');
       await db.deleteDoc(id);
       expect(await db.getDoc(id), isNull);
-      final rows = await db.db.rawQuery(
+      final rows = await db.db.select(
         'SELECT * FROM memory_tags WHERE doc_id = ?',
         [id],
       );
       expect(rows, isEmpty);
-      final links = await db.db.rawQuery(
+      final links = await db.db.select(
         'SELECT * FROM memory_links WHERE src = ? OR dst = ?',
         [id, id],
       );
       expect(links, isEmpty);
-      final evs = await db.db.rawQuery(
+      final evs = await db.db.select(
         'SELECT * FROM memory_evidence WHERE obj_id = ?',
         [id],
       );

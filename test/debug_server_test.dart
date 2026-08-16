@@ -21,7 +21,6 @@ void main() {
   setUpAll(() {
     sqfliteFfiInit();
     sessionDbFactory = databaseFactoryFfi;
-    memoryDbFactory = databaseFactoryFfi;
   });
 
   setUp(() async {

@@ -53,6 +53,9 @@ dependencies:
   re_editor: ^0.10.0
   # 中文分词（P0 记忆检索：Python jieba 的纯 Dart 移植，MIT）
   dart_jieba: ^1.0.1
+  # 记忆库迁移（v4 设计稿 §2 方案 A）：Android 系统 SQLite 无 FTS5，
+  # sqlite3 3.x 自带 SQLite 且编译含 SQLITE_ENABLE_FTS5（memory.db 专用）。
+  sqlite3: ^3.5.1
 
   # printnotes 渲染引擎 + UI 子系统依赖（markdown_widget 引擎在 lib/printnotes/markdown/ 内自包含）
   flutter_highlight: ^0.7.0

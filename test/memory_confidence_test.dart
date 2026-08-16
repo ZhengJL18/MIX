@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mix/services/memory_confidence.dart';
 import 'package:mix/services/memory_db.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   late Directory tmp;
@@ -11,8 +10,6 @@ void main() {
   late MemoryConfidence confidence;
 
   setUpAll(() {
-    sqfliteFfiInit();
-    memoryDbFactory = databaseFactoryFfi;
   });
 
   setUp(() async {
