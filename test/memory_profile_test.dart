@@ -6,6 +6,7 @@ import 'package:mix/services/memory_db.dart';
 import 'package:mix/services/memory_learning.dart';
 import 'package:mix/services/memory_profile.dart';
 import 'package:mix/services/study_engine.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
   late Directory tmp;
@@ -14,6 +15,7 @@ void main() {
   late MemoryProfileProjector projector;
 
   setUpAll(() {
+    sqfliteFfiInit();
     sessionDbFactory = databaseFactoryFfi;
   });
 
