@@ -130,13 +130,13 @@ void main() {
   group('summaries', () {
     test('upsertSummary / getSummary + stale 判断', () async {
       final id = await db.upsertDoc(path: 's.md', title: 'S', content: 'long');
-      await db.upsertSummary(id, '摘要', docMtime: 1);
+      await db.upsertSummary(id, '摘要', 1);
       final summary = await db.getSummary(id);
       // doc mtime 是插入时刻（非 1）→ stale → null。
       expect(summary, isNull);
       final doc = await db.getDoc(id);
       final mtime = doc!['mtime'] as int;
-      await db.upsertSummary(id, '摘要', docMtime: mtime);
+      await db.upsertSummary(id, '摘要', mtime);
       final ok = await db.getSummary(id);
       expect(ok, isNotNull);
       expect(ok!['summary'], '摘要');
