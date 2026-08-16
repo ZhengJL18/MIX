@@ -76,11 +76,12 @@ Future<String> _handleDelegateAsync(
   }
   try {
     final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
-    final id = await db.db.insert('async_delegations', {
-      'task': task,
-      'status': 'running',
-      'created_at': now,
-    });
+    db.db.execute(
+      'INSERT INTO async_delegations(task, status, created_at) '
+      'VALUES (?, ?, ?)',
+      [task, 'running', now],
+    );
+    final id = db.db.lastInsertRowId;
     // 后台执行（fire-and-forget，不阻塞主 agent）。
     unawaited(_runDelegation(id, task, toolsets, depth, handler, db));
     return toolResult({
@@ -114,11 +115,10 @@ Future<void> _runDelegation(
     resultStr = 'delegation error: $e';
   }
   try {
-    await db.db.update(
-      'async_delegations',
-      {'status': status, 'result': resultStr, 'finished_at': now},
-      where: 'id = ?',
-      whereArgs: [id],
+    db.db.execute(
+      'UPDATE async_delegations SET status = ?, result = ?, finished_at = ? '
+      'WHERE id = ?',
+      [status, resultStr, now, id],
     );
   } catch (_) {
     // 库已关闭等：静默丢弃结果（fire-and-forget 语义）。
@@ -137,12 +137,11 @@ Future<String> _handleDelegationStatus(
     return toolError('delegation_status: delegation_id required');
   }
   try {
-    final rows = await db.db.query(
-      'async_delegations',
-      where: 'id = ?',
-      whereArgs: [id],
-      limit: 1,
+    final result = db.db.select(
+      'SELECT * FROM async_delegations WHERE id = ? LIMIT 1',
+      [id],
     );
+    final rows = result.toList();
     if (rows.isEmpty) {
       return toolError('delegation_status: delegation $id not found');
     }
