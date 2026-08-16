@@ -48,13 +48,15 @@ class MemoryManager {
   /// - 检索不可用/无命中 → 退回纯快照（宁可缺，不可杂，v4 §5.5 门控）；
   /// - 摘要有则用摘要（snippet 模式），无则截断原文（token 预算）；
   /// - P1 置信度门控（v4 §6）：可靠度低的对象不注入（可能过时）；
-  ///   注入成功的记录 `activated` 正证据。
+  ///   注入成功的记录 `activated` 正证据；
+  /// - trivial-prompt 门控（Hermes）：寒暄类消息跳过检索（省成本）。
   Future<String> prefetchRecall(String query) async {
     final base = buildSystemPromptMemory();
     final db = memoryDb;
     if (db == null) return base;
     final q = query.trim();
     if (q.isEmpty) return base;
+    if (isTrivialPrompt(q)) return base; // "hi/thanks/ok" 不触发检索。
     try {
       final rows = await db.searchMemories(q, limit: 8);
       if (rows.isEmpty) return base;
@@ -113,4 +115,22 @@ class MemoryManager {
 
   /// 当前记忆状态（调试/展示用）。
   Map<String, dynamic> state() => store.toDict();
+}
+
+/// trivial-prompt 门控（Hermes turn_context.py 的 trivial-prompt 判断）：
+/// 寒暄/确认类短消息跳过记忆检索（省 LLM/DB 成本，对齐 Hermes 行为）。
+bool isTrivialPrompt(String message) {
+  final m = message.trim().toLowerCase();
+  if (m.isEmpty) return true;
+  if (m.length > 24) return false; // 长消息一定是实质内容。
+  // 纯寒暄/确认/语气词。
+  const trivial = <String>{
+    'hi', 'hello', 'hey', 'ok', 'okay', 'thanks', 'thank you', 'thx',
+    'yes', 'no', 'bye', 'good', 'great', 'nice', 'sure', 'done',
+    '好的', '好', '嗯', '哦', '嗯嗯', '谢谢', '多谢', '感谢', '可以', '行',
+    '知道了', '明白', '没问题', '再见', '早上好', '晚安', '在吗',
+  };
+  if (trivial.contains(m)) return true;
+  // 纯 emoji/标点。
+  return RegExp(r'^[\s\p{Emoji}\p{P}\p{S}]+$', unicode: true).hasMatch(m);
 }
