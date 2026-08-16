@@ -42,7 +42,7 @@ jobs:
       - name: Run tests
         run: |
           set -o pipefail
-          flutter test 2>&1 | tee /tmp/flutter_test.log
+          flutter test --reporter expanded 2>&1 | tee /tmp/flutter_test.log
 
       # 测试失败时把详情以 ::error:: 写入 annotations（日志正文需登录才能看，
       # 这里把关键行暴露到可匿名读取的 annotations 上，方便诊断 CI）。
