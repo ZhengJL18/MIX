@@ -283,6 +283,23 @@ class StudyEngine {
     });
   }
 
+  /// 题目所属知识点 id（学习事件→证据流映射用，v4 §6 学习事件=记忆观察）。
+  /// 无此题或查询失败返回 null。
+  Future<int?> getQuestionKp(int questionId) async {
+    try {
+      final rows = await db.query(
+        'questions',
+        where: 'id = ?',
+        whereArgs: [questionId],
+        columns: ['kp_id'],
+        limit: 1,
+      );
+      return rows.isEmpty ? null : rows.first['kp_id'] as int;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// 最近作答记录（供统计/小结）。
   Future<List<Map<String, dynamic>>> recentRecords(int limit) async {
     return db.query('practice_records',

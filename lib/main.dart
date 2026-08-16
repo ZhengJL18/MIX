@@ -38,6 +38,7 @@ import 'services/chinese_segmenter.dart';
 import 'services/goal_store.dart';
 import 'services/memory_db.dart';
 import 'services/memory_indexer.dart';
+import 'services/memory_learning.dart';
 import 'services/memory_summarizer.dart';
 import 'services/memory_tagger.dart';
 import 'services/multi_agent.dart';
@@ -66,6 +67,7 @@ import 'tools/convert_tools.dart';
 import 'tools/read_doc_tool.dart';
 import 'tools/session_search_tool.dart';
 import 'tools/skills_tool.dart';
+import 'tools/study_status_tool.dart';
 import 'tools/study_tools.dart';
 import 'tools/todo_tool.dart';
 import 'tools/vision_tool.dart';
@@ -423,6 +425,7 @@ class _ChatScreenState extends State<ChatScreen> {
   MemoryIndexer? _memoryIndexer;
   MemorySummarizer? _memorySummarizer;
   GoalStore? _goalStore;
+  MemoryLearning? _memoryLearning;
   SessionDB? _sessionDb;
   String? _currentSessionId;
   // 加载代际：每次加载递增，返回时若代际过期则丢弃结果（防并发加载串记录）。
@@ -1111,6 +1114,19 @@ class _ChatScreenState extends State<ChatScreen> {
         mainCause: mainCause,
         minorCause: minorCause,
       );
+      // P4 学习事件 = 记忆观察（v4 §6）：判题结果写入知识点证据流 →
+      // 置信度引擎可提取性/掌握度信号。
+      try {
+        final kpId = await engine.getQuestionKp(questionId);
+        final md = _memoryDb;
+        if (kpId != null && md != null) {
+          await md.addEvidence(
+            'knowledge',
+            kpId,
+            correct ? 'correct' : 'wrong',
+          );
+        }
+      } catch (_) {}
       return '已记录作答';
     } catch (e) {
       return '作答记录失败: $e';
@@ -1535,6 +1551,14 @@ class _ChatScreenState extends State<ChatScreen> {
       final engine = StudyEngine(dbPath: '$dir/study.db');
       await engine.init();
       _studyEngine = engine;
+    } catch (_) {}
+    // P4 学习状态描绘（v4 §6.3）：记忆证据流 → 可提取性/掌握/复习推荐。
+    try {
+      final md = _memoryDb;
+      if (md != null && _studyEngine != null) {
+        _memoryLearning = MemoryLearning(db: md, studyEngine: _studyEngine);
+        registerStudyStatusTool(learning: _memoryLearning);
+      }
     } catch (_) {}
     // P1 记忆索引器（v4 §5 确定性图建构）：自动标签 + 知识点边。
     // memory 工具写入后触发索引；知识点全量同步进记忆网。
