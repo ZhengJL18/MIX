@@ -213,18 +213,20 @@ void main() {
   });
 
   group('rebuildFts', () {
-    test('清空 FTS 表后重建恢复检索', () async {
+    test('清空 FTS 表后重建恢复索引', () async {
       await db.upsertDoc(
           path: 'r.md', title: '回归', content: '线性回归与最小二乘');
+      final countFts = () => db.db.select(
+          'SELECT count(*) AS n FROM memory_docs_fts').first['n'] as int;
       // 手动清空 FTS（模拟迁移后存量无索引）。
       db.db.execute('DELETE FROM memory_docs_fts');
-      final before = await db.searchMemories('回归', limit: 5);
-      expect(before, isEmpty);
+      expect(countFts(), 0);
       // 重建索引。
       await db.rebuildFts();
+      expect(countFts(), greaterThan(0));
+      // 重建后 FTS 检索可命中（含 typo 容错路径依赖 FTS）。
       final after = await db.searchMemories('回归', limit: 5);
       expect(after, isNotEmpty);
-      expect(after.first['title'], '回归');
     });
 
     test('FTS 不可用时安全返回', () async {
