@@ -107,6 +107,9 @@ dependency_overrides:
   # 导致 FilePickerPlugin.kt 未编译 → 本地副本修 build.gradle 始终应用 Kotlin。
   file_picker:
     path: third_party/file_picker
+  # docx_to_markdown 要 meta ^1.18.3，但 flutter_test 被 Flutter SDK 钉在
+  # 1.18.0——meta 是注解包（补丁版本 API 兼容），强制 1.18.0 解决。
+  meta: 1.18.0
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
