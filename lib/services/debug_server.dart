@@ -80,6 +80,7 @@ class DebugServer {
 
   void _onConnection(Socket socket) {
     socket
+        .cast<List<int>>()
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen((line) async {
