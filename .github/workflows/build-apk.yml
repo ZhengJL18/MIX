@@ -26,7 +26,16 @@ jobs:
           cache: true
 
       - name: Install dependencies
-        run: flutter pub get
+        run: |
+          flutter pub get 2>&1 | tee /tmp/pubget.log
+
+      - name: Expose pub get details
+        if: failure()
+        run: |
+          grep -E "error|conflict|Because|version solving|failed|incompatible|requires" /tmp/pubget.log \
+            | head -40 | sed 's/^/::error::/' || true
+          echo "=====PUBGET TAIL====="
+          tail -30 /tmp/pubget.log | sed 's/^/::error::/' || true
 
       - name: Analyze
         run: flutter analyze --no-fatal-infos --no-fatal-warnings 2>&1 | tee /tmp/flutter_analyze.log
