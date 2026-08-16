@@ -154,4 +154,28 @@ class GoalStore {
     final score = await confidence.score(objType, objId);
     return (score.confidence, score.positive + score.negative);
   }
+
+  /// 渲染活跃目标块（v4 §7.1 自动续跑）：agent 系统提示注入用。
+  ///
+  /// 列出活跃目标 + 证据驱动进度 + 轮次——agent 每轮看到长期目标，
+  /// 自动朝目标推进（跨会话持续）。无活跃目标返回空串。
+  Future<String> renderActiveGoalsBlock() async {
+    final goals = await listActiveGoals();
+    if (goals.isEmpty) return '';
+    final lines = <String>[];
+    for (final g in goals) {
+      final progress = await deriveProgress(g['id'] as int);
+      final p = progress == null
+          ? ''
+          : '（进度 ${(progress.$1 * 100).toStringAsFixed(0)}%，'
+              '证据 ${progress.$2} 条）';
+      final rounds = '轮次 ${g['rounds']}/${g['max_rounds'] ?? '∞'}';
+      lines.add('- ${g['objective']}$p（$rounds）');
+    }
+    return '<active-goals>\n'
+        'Current active goals (persist across sessions, keep working toward '
+        'them):\n'
+        '${lines.join('\n')}\n'
+        '</active-goals>';
+  }
 }

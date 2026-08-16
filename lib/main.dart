@@ -430,6 +430,8 @@ class _ChatScreenState extends State<ChatScreen> {
   MemoryLearning? _memoryLearning;
   MemoryProfileProjector? _memoryProfile;
   NotesSyncService? _notesSync;
+  /// 活跃目标缓存（goal provider 同步读取；回合后异步刷新）。
+  String _activeGoalsBlock = '';
   SessionDB? _sessionDb;
   String? _currentSessionId;
   // 加载代际：每次加载递增，返回时若代际过期则丢弃结果（防并发加载串记录）。
@@ -972,6 +974,19 @@ class _ChatScreenState extends State<ChatScreen> {
       if (p != null) {
         unawaited(p.saveToMemory());
       }
+    } catch (_) {}
+    // P3 Goal 自动续跑：回合后刷新活跃目标缓存（进度可能已变化）。
+    try {
+      unawaited(_refreshActiveGoals());
+    } catch (_) {}
+  }
+
+  /// 刷新活跃目标缓存（goal provider 数据源，跨会话自动续跑）。
+  Future<void> _refreshActiveGoals() async {
+    try {
+      final store = _goalStore;
+      if (store == null) return;
+      _activeGoalsBlock = await store.renderActiveGoalsBlock();
     } catch (_) {}
   }
 
@@ -1518,9 +1533,11 @@ class _ChatScreenState extends State<ChatScreen> {
       _memoryTagger = MemoryTagger();
       await _memoryTagger!.loadIdf(dir);
       _memory = MemoryManager(store: memoryStore!, memoryDb: _memoryDb);
-      // P3 Goal 系统（DSH 启示 1）：持久目标存储 + 工具。
+      // P3 Goal 系统（DSH 启示 1）：持久目标存储 + 工具 + 自动续跑注入。
       _goalStore = GoalStore(_memoryDb!);
       registerGoalTool(store: _goalStore);
+      goalCatalogProvider = () => _activeGoalsBlock;
+      await _refreshActiveGoals();
     } catch (_) {}
     // 自定义部门（公司模式）。
     try {

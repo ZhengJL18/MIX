@@ -93,5 +93,27 @@ void main() {
       expect(p!.$1, closeTo(0.75, 1e-9));
       expect(p.$2, 2);
     });
+
+    test('无活跃 goal → 渲染空串', () async {
+      expect(await goals.renderActiveGoalsBlock(), '');
+    });
+
+    test('活跃 goal 渲染块含目标 + 证据进度', () async {
+      final docId = await db.upsertDoc(path: 'k.md', title: 'K', content: 'x');
+      await db.addEvidence('knowledge', docId, 'correct');
+      final id = (await goals.createGoal(
+        '掌握线性代数第二章',
+        maxRounds: 10,
+        evidenceObj: 'knowledge:$docId',
+      ))!;
+      final block = await goals.renderActiveGoalsBlock();
+      expect(block, contains('<active-goals>'));
+      expect(block, contains('掌握线性代数第二章'));
+      expect(block, contains('进度 67%')); // (1+1)/(1+0+2)=2/3。
+      expect(block, contains('轮次 0/10'));
+      // 完成的目标不渲染。
+      await goals.setPhase(id, 1, 'done');
+      expect(await goals.renderActiveGoalsBlock(), '');
+    });
   });
 }

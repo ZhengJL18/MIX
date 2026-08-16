@@ -34,6 +34,11 @@ import 'retry_utils.dart';
 /// 可空——未注入时不注入技能目录，不影响主循环。
 String Function()? skillCatalogProvider;
 
+/// P3 Goal 自动续跑 provider（v4 §7.1）：返回活跃目标块（objective +
+/// 证据驱动进度 + 轮次），由 main.dart 注入（缓存异步刷新）。
+/// agent 每轮看到长期目标 → 自动朝目标推进（跨会话持续）。
+String Function()? goalCatalogProvider;
+
 /// agent 主循环的结果。
 class ConversationResult {
   final String? finalResponse;
@@ -337,6 +342,13 @@ class MIXAgent {
       final skillBlock = skillCatalogProvider?.call();
       if (skillBlock != null && skillBlock.isNotEmpty) {
         effectiveSystem = '$effectiveSystem\n\n$skillBlock';
+      }
+    } catch (_) {}
+    // P3 Goal 自动续跑（v4 §7.1）：活跃目标并入系统提示，跨会话持续推进。
+    try {
+      final goalBlock = goalCatalogProvider?.call();
+      if (goalBlock != null && goalBlock.isNotEmpty) {
+        effectiveSystem = '$effectiveSystem\n\n$goalBlock';
       }
     } catch (_) {}
     String memoryBlock;
