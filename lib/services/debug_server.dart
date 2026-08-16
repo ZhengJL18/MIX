@@ -30,6 +30,7 @@ import 'memory_learning.dart';
 import 'memory_tagger.dart';
 import 'notes_sync.dart';
 import 'study_engine.dart';
+import '../tools/read_doc_tool.dart' show readDocTool;
 
 /// 调试服务端口（adb forward 用）。
 const int kDebugServerPort = 8701;
@@ -137,6 +138,8 @@ class DebugServer {
           return _cmdEvidence(args);
         case 'notes_sync':
           return _cmdNotesSync();
+        case 'read_doc':
+          return _cmdReadDoc(args);
         default:
           return jsonEncode({'error': "unknown cmd '$cmd'"});
       }
@@ -315,6 +318,20 @@ class DebugServer {
     if (ns == null) return jsonEncode({'error': 'notes_sync unavailable'});
     final updated = await ns.syncNotes();
     return jsonEncode({'updated': updated});
+  }
+
+  /// read_doc：本地文档→Markdown 提取（PDF/DOCX/PPTX/XLSX 验证用）。
+  Future<String> _cmdReadDoc(Object? args) async {
+    final path = _argStr(args, 'path');
+    if (path == null || path.isEmpty) {
+      return jsonEncode({'error': 'read_doc: path required'});
+    }
+    try {
+      final text = await readDocTool(path, maxChars: _argInt(args, 'max_chars') ?? 5000);
+      return jsonEncode({'path': path, 'extracted': text.substring(0, text.length > 2000 ? 2000 : text.length)});
+    } catch (e) {
+      return jsonEncode({'error': 'read_doc failed: $e'});
+    }
   }
 
   // ------------------------------------------------------------------
