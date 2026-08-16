@@ -94,7 +94,7 @@ Future<String> _handleDelegateAsync(
   }
 }
 
-/// 后台执行委派并写回结果。
+/// 后台执行委派并写回结果（db 写入失败静默——后台任务容错，不抛未捕获异常）。
 Future<void> _runDelegation(
   int id,
   String task,
@@ -105,21 +105,23 @@ Future<void> _runDelegation(
   MemoryDB db,
 ) async {
   final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
+  var status = 'done';
+  String? resultStr;
   try {
-    final result = await handler(task, toolsets, depth);
-    await db.db.update(
-      'async_delegations',
-      {'status': 'done', 'result': result, 'finished_at': now},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    resultStr = await handler(task, toolsets, depth);
   } catch (e) {
+    status = 'failed';
+    resultStr = 'delegation error: $e';
+  }
+  try {
     await db.db.update(
       'async_delegations',
-      {'status': 'failed', 'result': 'delegation error: $e', 'finished_at': now},
+      {'status': status, 'result': resultStr, 'finished_at': now},
       where: 'id = ?',
       whereArgs: [id],
     );
+  } catch (_) {
+    // 库已关闭等：静默丢弃结果（fire-and-forget 语义）。
   }
 }
 
