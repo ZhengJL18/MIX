@@ -35,6 +35,7 @@ import 'refine/refine_pipeline.dart';
 import 'refine/trajectory_store.dart';
 import 'screens/settings_screen.dart';
 import 'services/chinese_segmenter.dart';
+import 'services/goal_store.dart';
 import 'services/memory_db.dart';
 import 'services/memory_indexer.dart';
 import 'services/memory_summarizer.dart';
@@ -53,6 +54,7 @@ import 'tools/cron_tools.dart';
 import 'tools/delegate_tool.dart';
 import 'tools/file_tools.dart';
 import 'tools/git_tools.dart';
+import 'tools/goal_tool.dart';
 import 'tools/memory_manager.dart';
 import 'tools/memory_search_tool.dart';
 import 'tools/memory_tool.dart';
@@ -419,6 +421,7 @@ class _ChatScreenState extends State<ChatScreen> {
   MemoryTagger? _memoryTagger;
   MemoryIndexer? _memoryIndexer;
   MemorySummarizer? _memorySummarizer;
+  GoalStore? _goalStore;
   SessionDB? _sessionDb;
   String? _currentSessionId;
   // 加载代际：每次加载递增，返回时若代际过期则丢弃结果（防并发加载串记录）。
@@ -1483,6 +1486,9 @@ class _ChatScreenState extends State<ChatScreen> {
       _memoryTagger = MemoryTagger();
       await _memoryTagger!.loadIdf(dir);
       _memory = MemoryManager(store: memoryStore!, memoryDb: _memoryDb);
+      // P3 Goal 系统（DSH 启示 1）：持久目标存储 + 工具。
+      _goalStore = GoalStore(_memoryDb!);
+      registerGoalTool(store: _goalStore);
     } catch (_) {}
     // 自定义部门（公司模式）。
     try {

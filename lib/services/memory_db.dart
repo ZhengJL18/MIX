@@ -112,6 +112,34 @@ class MemoryDB {
       )
     ''');
     await db.execute('CREATE INDEX IF NOT EXISTS idx_evidence_obj ON memory_evidence(obj_type, obj_id)');
+    // Goal 系统（DSH 启示 1，v4 §3）：持久目标 + 自动续跑。
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS goals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        objective TEXT NOT NULL,
+        revision INTEGER NOT NULL DEFAULT 1, -- 乐观锁
+        phase TEXT NOT NULL DEFAULT 'active', -- active|paused|blocked|done
+        rounds INTEGER NOT NULL DEFAULT 0,   -- 已续跑轮次
+        max_rounds INTEGER,
+        blocked_reason TEXT,
+        evidence_obj TEXT,                   -- 关联证据对象（如 knowledge:3）
+        created_at REAL NOT NULL,
+        updated_at REAL NOT NULL
+      )
+    ''');
+    // 异步委派（DSH 启示 2，Hermes async_delegations 表补全）。
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS async_delegations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        parent_session_id TEXT,
+        task TEXT NOT NULL,
+        model TEXT,
+        status TEXT NOT NULL DEFAULT 'running', -- running|done|failed|cancelled
+        result TEXT,
+        created_at REAL NOT NULL,
+        finished_at REAL
+      )
+    ''');
   }
 
   /// FTS5 建表（普通表，代码同步分词列）。不可用则静默降级。

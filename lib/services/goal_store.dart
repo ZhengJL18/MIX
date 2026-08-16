@@ -1,0 +1,157 @@
+/// Goal 系统（DSH 启示 1，v4 设计稿 §7.1）。
+///
+/// 持久目标 + 自动续跑：goal 是持久化对象（id + revision 乐观锁 + 阶段 +
+/// 轮次预算 + blocked 语义），跨会话自动续跑同一目标。
+///
+/// - **证据驱动进度**：goal 关联 `evidence_obj`（如 `knowledge:3`），进度由
+///   置信度引擎推导（v4 §6），不是自报——"掌握线代第二章"的进度 = 该知识点
+///   相关记忆的可靠度/可提取性演化。
+/// - **revision 乐观锁**：更新需携带当前 revision，防并发覆盖。
+library;
+
+import 'memory_confidence.dart';
+import 'memory_db.dart';
+
+/// Goal 阶段。
+class GoalPhase {
+  static const String active = 'active';
+  static const String paused = 'paused';
+  static const String blocked = 'blocked';
+  static const String done = 'done';
+}
+
+/// Goal 存储（复用 memory.db，独立类保持职责清晰）。
+class GoalStore {
+  final MemoryDB db;
+
+  GoalStore(this.db);
+
+  /// 创建目标。返回 goal id；失败返回 null。
+  Future<int?> createGoal(
+    String objective, {
+    int? maxRounds,
+    String? evidenceObj,
+  }) async {
+    if (objective.trim().isEmpty) return null;
+    final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
+    try {
+      return await db.db.insert('goals', {
+        'objective': objective.trim(),
+        'phase': GoalPhase.active,
+        'max_rounds': maxRounds,
+        'evidence_obj': evidenceObj,
+        'created_at': now,
+        'updated_at': now,
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 读单个 goal。
+  Future<Map<String, dynamic>?> getGoal(int id) async {
+    final rows = await db.db.query(
+      'goals',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// 列出目标（按 phase 过滤，可选）。
+  Future<List<Map<String, dynamic>>> listGoals({String? phase}) async {
+    final rows = await db.db.query(
+      'goals',
+      where: phase != null ? 'phase = ?' : null,
+      whereArgs: phase != null ? [phase] : null,
+      orderBy: 'updated_at DESC',
+    );
+    return rows;
+  }
+
+  /// 活跃目标（phase=active 且未超轮次上限）。
+  Future<List<Map<String, dynamic>>> listActiveGoals() async {
+    final rows = await db.db.query(
+      'goals',
+      where: 'phase = ?',
+      whereArgs: [GoalPhase.active],
+      orderBy: 'updated_at DESC',
+    );
+    return rows;
+  }
+
+  /// 乐观锁更新：调用方携带当前 [expectedRevision]，不匹配返回 false。
+  Future<bool> updateGoal(
+    int id, {
+    int expectedRevision,
+    String? objective,
+    String? phase,
+    String? blockedReason,
+    int? rounds,
+    int? maxRounds,
+    String? evidenceObj,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
+    final updates = <String, dynamic>{'updated_at': now};
+    if (objective != null) updates['objective'] = objective.trim();
+    if (phase != null) updates['phase'] = phase;
+    if (blockedReason != null) updates['blocked_reason'] = blockedReason;
+    if (rounds != null) updates['rounds'] = rounds;
+    if (maxRounds != null) updates['max_rounds'] = maxRounds;
+    if (evidenceObj != null) updates['evidence_obj'] = evidenceObj;
+    updates['revision'] = expectedRevision + 1; // 乐观锁递增。
+    try {
+      final n = await db.db.update(
+        'goals',
+        updates,
+        where: 'id = ? AND revision = ?',
+        whereArgs: [id, expectedRevision],
+      );
+      return n > 0;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 续跑一轮（rounds+1，revision 递增）。供 goal driver 每轮调用。
+  Future<bool> advanceRound(int id, int expectedRevision) async {
+    final g = await getGoal(id);
+    if (g == null) return false;
+    final next = ((g['rounds'] as int?) ?? 0) + 1;
+    return updateGoal(id, expectedRevision: expectedRevision, rounds: next);
+  }
+
+  /// 暂停/恢复/完成/阻塞（携带 revision 乐观锁）。
+  Future<bool> setPhase(
+    int id,
+    int expectedRevision,
+    String phase, {
+    String? blockedReason,
+  }) {
+    return updateGoal(
+      id,
+      expectedRevision: expectedRevision,
+      phase: phase,
+      blockedReason: phase == GoalPhase.blocked ? blockedReason : null,
+    );
+  }
+
+  /// 从证据对象推导目标进度（v4 §6 证据驱动）：
+  /// 返回 (进度分 0~1, 证据数)。无证据对象返回 null。
+  Future<(double, int)?> deriveProgress(int id) async {
+    final goal = await getGoal(id);
+    if (goal == null) return null;
+    final evidenceObj = goal['evidence_obj'] as String?;
+    if (evidenceObj == null || !evidenceObj.contains(':')) return null;
+    final parts = evidenceObj.split(':');
+    if (parts.length < 2) return null;
+    final objType = parts[0];
+    final objId = int.tryParse(parts[1]);
+    if (objId == null) return null;
+    // 掌握度信号：置信度引擎的 Beta 置信度即进度（v4 §6.3 学习描绘）。
+    final confidence = MemoryConfidence(db);
+    final score = await confidence.score(objType, objId);
+    return (score.confidence, score.positive + score.negative);
+  }
+}
