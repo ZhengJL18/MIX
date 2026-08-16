@@ -43,6 +43,7 @@ import 'services/memory_profile.dart';
 import 'services/memory_summarizer.dart';
 import 'services/memory_tagger.dart';
 import 'services/multi_agent.dart';
+import 'services/notes_sync.dart';
 import 'services/storage_permission.dart';
 import 'services/study_engine.dart';
 import 'services/study_question_service.dart';
@@ -428,6 +429,7 @@ class _ChatScreenState extends State<ChatScreen> {
   GoalStore? _goalStore;
   MemoryLearning? _memoryLearning;
   MemoryProfileProjector? _memoryProfile;
+  NotesSyncService? _notesSync;
   SessionDB? _sessionDb;
   String? _currentSessionId;
   // 加载代际：每次加载递增，返回时若代际过期则丢弃结果（防并发加载串记录）。
@@ -1671,6 +1673,19 @@ class _ChatScreenState extends State<ChatScreen> {
         await for (final e in legacyLib.list()) {
           await e.rename(p.join(newLib.path, p.basename(e.path)));
         }
+      }
+    } catch (_) {}
+    // P4 笔记库同步进记忆网（v4 §1 多记忆文档：printnotes 笔记 → 记忆文档，
+    // 可被 memory_search 检索 + 进标签图/知识点边；启动增量同步一次）。
+    try {
+      final md = _memoryDb;
+      if (md != null) {
+        _notesSync = NotesSyncService(
+          db: md,
+          notesRoot: notesRootPath(dir),
+          indexer: _memoryIndexer,
+        );
+        await _notesSync!.syncNotes();
       }
     } catch (_) {}
     // 自进化（Continual Harness）：轨迹 / prompt notes / 编辑台账。
