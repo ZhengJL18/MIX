@@ -33,7 +33,7 @@
 - **git**：基于 git2dart（嵌入式 libgit2），clone / init / status / add / commit / log / branch / diff / push / pull + `github_ci_logs`，认证自动读配置里的 GitHub PAT
 - **学习**：`study_list` / `study_question` / `study_record` / `study_profile_update` / `study_quiz`（批量题卡：左右滑动逐题作答，UI 机械判题，答完回填 agent 讲解；学习模式与通用助手均可出批量题）
 - **笔记库**：`notes_list` / `notes_search` / `notes_read` / `notes_write`（写后聊天侧出「打开笔记」深链）
-- **其他**：`vision_analyze`（独立视觉模型配置）、`read_doc`（格式探测 + 纯 Dart 解包 + 云端 /extract）、`md_to_docx` / `md_to_pdf` / `cloud_extract`、`cron_create/list/delete`（App 存活时触发）、用户脚本（知乎去登录 / 通用复制解锁 / 小红书）
+- **其他**：`vision_analyze`（独立视觉模型配置）、`read_doc`（格式探测 + **本地文档→Markdown**：docx 结构化转换 / pptx 逐页大纲 / xlsx 表格 / pdf 本地文本提取（pdfium），云端 /extract 仅 fallback）、`md_to_docx` / `md_to_pdf` / `cloud_extract`、`cron_create/list/delete`（App 存活时触发）、用户脚本（知乎去登录 / 通用复制解锁 / 小红书）
 
 ### 记忆子系统（v4 架构，2026-08 P0-P4 落地，设计见 `docs/MEMORY_SYSTEM_DESIGN.md`）
 - **多记忆文档**：记忆库 `memory.db`（memory_docs / tags / links / summaries / evidence / goals / async_delegations 七表 + FTS5），`memory` 工具写入的内容自动索引为记忆文档；**笔记库（printnotes）增量同步**为记忆文档（`NotesSyncService`，kind='note'，mtime 增量比对）——笔记可被 `memory_search` 检索、进联想图

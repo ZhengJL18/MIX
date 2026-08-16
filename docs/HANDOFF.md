@@ -57,6 +57,7 @@
 - **遗留**：P2 决策点注入（trivial 门控已覆盖主要省 token 场景）未做；异步委派的取消/完成通知 UI 未做（需本地通知依赖）。**P2 单 worker 保序写无需额外实现**——sqflite 单实例数据库操作天然串行（内部排队），回合后摘要/索引/投影各自 fire-and-forget 已保序。学习模式端到端（建知识点/做题后的 study_status/evidence）待用户正常使用验证（服务已就绪，真机验证时空数据符合预期）。
 - **✅ 真机验证完成（2026-08-16，华为 FOA-AL00）**：① **FTS5 不可用问题已解决**——系统 SQLite 无 FTS5（实测 `fts_available:false`）→ memory.db 迁移 `package:sqlite3` 3.x（自带 SQLite 含 FTS5）→ `fts_available:true`；② 中文分词/热词检索/bm25 排序 ✅（"行列式"精确命中标题）；③ typo 容错 ✅（"泊菘"→"泊松"命中 7 篇，2 字词 1 错）；④ 自动标签/图建构 ✅（doc 57 有 49 条 tag 边 + Hebbian 权重）；⑤ 笔记同步 ✅（Prob140 + obsidian_math 讲义自动入库）；⑥ 画像投影 ✅（memory/profile.md 自动生成）；⑦ 调试服务（`DebugServer` 127.0.0.1:8701 + `adb forward tcp:8701 tcp:8701`）JSON 交互验证全链路。验证细节见 `docs/VERIFICATION.md`。
 - **迁移注意**：sqlite3 3.x 迁移后旧库（sqflite 时代无 FTS 表）需 `MemoryDB.rebuildFts()` 全量补索引（main.dart 启动时已调用）；测试环境无 dart_jieba 分词器（rootBundle 不可用）→ FTS 相关断言依赖真机。
+- **本地文档→Markdown（2026-08，云算力弱改本地）**：`local_doc_parser.dart`——docx（docx_to_markdown 包，纯 Dart）、pptx（slide XML 逐页大纲）、xlsx（Markdown 表格）、pdf（pdfrx/pdfium 原生本地文本提取，Unicode 数学符号尽力保留；公式语义/扫描件为本地算力天花板，走视觉分析）。read_doc 接入：zip 分支先本地 OOXML→MD，pdf 分支本地优先云端 fallback。真机验证：PDF "Hello MIX PDF Test" ✅、DOCX 中文段落 ✅。踩坑：docx_to_markdown 依赖 xml ^7.0.1（MIX 升 7，web_tools 兼容）+ meta ^1.18.3 vs flutter_test 钉 1.18.0（dependency_overrides 强制 1.18.0，注解包补丁版本兼容）。
 
 ### 对话体验
 - Markdown 渲染；LaTeX 公式（行内 `$...$`、块 `$$...$$`，支持矩阵/方程组/行列式/下标/分数等）。
