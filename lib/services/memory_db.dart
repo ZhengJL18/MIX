@@ -368,6 +368,9 @@ class MemoryDB {
   }
 
   /// 目标文档的直接邻居（P1 扩散激活用）。
+  ///
+  /// 图是无向的（Hebbian 关联边）→ 双向查询：邻居是"另一端"的文档，
+  /// 无论边方向是 src→dst 还是 dst→src。
   Future<List<Map<String, dynamic>>> getNeighbors(
     int docId, {
     String? kind,
@@ -376,10 +379,10 @@ class MemoryDB {
     var sql = '''
       SELECT d.*, l.kind AS link_kind, l.weight AS link_weight
       FROM memory_links l
-      JOIN memory_docs d ON d.id = l.dst
-      WHERE l.src = ?
+      JOIN memory_docs d ON d.id = CASE WHEN l.src = ? THEN l.dst ELSE l.src END
+      WHERE l.src = ? OR l.dst = ?
     ''';
-    final args = <Object?>[docId];
+    final args = <Object?>[docId, docId, docId];
     if (kind != null && kind.isNotEmpty) {
       sql += ' AND l.kind = ?';
       args.add(kind);
