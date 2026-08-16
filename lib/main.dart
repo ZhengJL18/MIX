@@ -1527,6 +1527,8 @@ class _ChatScreenState extends State<ChatScreen> {
       await initChineseSegmenter(dir);
       _memoryDb = MemoryDB(dbPath: '$dir/memory.db');
       await _memoryDb!.init();
+      // 迁移补索引：sqlite3 3.x 迁入后存量文档重建 FTS（旧库 FTS 表为空）。
+      await _memoryDb!.rebuildFts();
       registerMemorySearchTools(db: _memoryDb);
       registerMemoryVerifyTool(db: _memoryDb);
       // P3 异步委派（DSH 启示2）：async_delegations 表在记忆库。

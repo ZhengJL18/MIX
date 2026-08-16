@@ -151,6 +151,24 @@ class MemoryDB {
     }
   }
 
+  /// 全量重建 FTS 索引（迁移/历史数据补索引用）。
+  ///
+  /// 场景：旧库（sqflite 时代系统 SQLite 无 FTS5）→ memory_docs_fts 从未建成；
+  /// 迁 sqlite3 3.x 后建表成功但**存量文档没有 FTS 行**——检索命中全靠 LIKE。
+  /// 启动时调用一次把存量文档补进 FTS。文档量小（个人记忆库数百篇），
+  /// 逐篇 _syncFts 即可（毫秒~秒级）。
+  Future<void> rebuildFts() async {
+    if (!_ftsAvailable) return;
+    try {
+      final docs = _query(
+        'SELECT id, title, content FROM memory_docs',
+      );
+      for (final d in docs) {
+        _syncFts(d['id'] as int, d['title'] as String, d['content'] as String);
+      }
+    } catch (_) {}
+  }
+
   // ------------------------------------------------------------------
   // 查询辅助（Row → Map）
   // ------------------------------------------------------------------
