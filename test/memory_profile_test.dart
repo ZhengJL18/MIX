@@ -45,7 +45,7 @@ void main() {
       await engine.ensureKnowledgePoint(sid2, '贝叶斯公式');
       final md = await projector.buildMarkdown();
       expect(md, contains('学习状态投影'));
-      expect(md, contains('知识点总数：2'));
+      expect(md, contains('**知识点总数**：2'));
       expect(md, contains('## 线性代数'));
       expect(md, contains('## 概率论'));
       expect(md, contains('行列式'));
@@ -64,7 +64,7 @@ void main() {
 
     test('无知识点时仍生成框架', () async {
       final md = await projector.buildMarkdown();
-      expect(md, contains('知识点总数：0'));
+      expect(md, contains('**知识点总数**：0'));
       expect(md, contains('学习状态投影'));
     });
   });
