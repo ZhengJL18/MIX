@@ -52,22 +52,24 @@ jobs:
           python3 - <<'EOF'
           import re
           try:
-              log = open('/tmp/flutter_test.log').read()
+              log = open('/tmp/flutter_test.log', errors='replace').read()
           except FileNotFoundError:
               log = ''
           chunks = []
-          # compact reporter 的失败块（[E] 开头，到空行结束）。
-          for m in re.finditer(r'\[E\].*?(?=\n\n|\Z)', log, re.S):
-              chunks.append(m.group(0)[:1600])
-          # 编译/加载失败。
+          pats = [
+              r'\[E\].*?(?=\n\n|\Z)',
+              r'(?:Expected:|Actual:|Which:|Exception|FOREIGN KEY|constraint failed).*?(?=\n\n|\Z)',
+          ]
+          for pat in pats:
+              for m in re.finditer(pat, log, re.S | re.I):
+                  c = m.group(0).strip()
+                  if c and len(c) > 20:
+                      chunks.append(c[:1500])
           if not chunks:
-              for m in re.finditer(r'(Failed to load|Compilation failed|Error:).*?(?=\n\n|\Z)', log, re.S):
-                  chunks.append(m.group(0)[:1600])
-          if not chunks:
-              tail = log[-4000:]
-              chunks.append(tail)
-          for i, c in enumerate(chunks[:10]):
-              print(f'::error::--- test failure {i+1} ---\n{c}')
+              chunks.append(log[-3000:])
+          for i, c in enumerate(chunks[:8]):
+              safe = c.replace('%', '%25').replace('\n', '%0A').replace('\r', '')
+              print(f'::error::[test-failure-{i+1}] {safe}')
           EOF
 
       - name: Upload test log
