@@ -70,7 +70,12 @@ String? segmentToFts(String text) {
 String? buildFtsQuery(String query) {
   final words = segmentWords(query);
   if (words.isEmpty) return null;
-  final escaped = words
+  return buildFtsOrQuery(words);
+}
+
+/// 词列表 → FTS5 OR 查询（typo 容错展开用：原词 + 相近标签合并）。
+String? buildFtsOrQuery(List<String> terms) {
+  final escaped = terms
       .map((w) => _escapeFtsTerm(w))
       .where((s) => s.isNotEmpty)
       .toList();

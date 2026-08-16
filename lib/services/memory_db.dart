@@ -16,6 +16,7 @@ library;
 
 import 'package:sqflite/sqflite.dart';
 
+import '../utils/levenshtein.dart';
 import 'chinese_segmenter.dart';
 
 /// 记忆库工厂（测试用 ffi，与 session_db 共用注入点）。
@@ -294,6 +295,23 @@ class MemoryDB {
           if (rows.isNotEmpty) {
             return rows;
           }
+          // FTS 无命中 → typo 容错展开（v4 §12：记错名字也能搜到；
+          // 在自动标签库里找编辑距离相近的标签 OR 展开）。
+          final typoExpr = await _expandTypoQuery(query);
+          if (typoExpr != null && typoExpr != matchExpr) {
+            final typoArgs = <Object?>[typoExpr];
+            final typoSql = 'SELECT d.* FROM memory_docs d '
+                'JOIN memory_docs_fts f ON f.rowid = d.id '
+                'WHERE memory_docs_fts MATCH ? '
+                'ORDER BY bm25(memory_docs_fts) ASC LIMIT ?';
+            final typoRows = await db.rawQuery(
+              typoSql,
+              [...typoArgs, limit],
+            );
+            if (typoRows.isNotEmpty) {
+              return typoRows;
+            }
+          }
         }
       } catch (_) {
         // FTS 查询失败 → 降级 LIKE。
@@ -310,6 +328,36 @@ class MemoryDB {
     sql += ' ORDER BY mtime DESC LIMIT ?';
     args.add(limit);
     return db.rawQuery(sql, args);
+  }
+
+  /// typo 容错展开（v4 §12）：FTS 无命中时，在自动标签库（memory_tags）
+  /// 里找与查询词编辑距离 ≤ 容错阈值（词长分级）的相近标签，OR 展开重查。
+  /// 无相近标签返回 null。
+  Future<String?> _expandTypoQuery(String query) async {
+    final words = segmentWords(query);
+    if (words.isEmpty) return null;
+    List<String> tags;
+    try {
+      final tagRows = await db.rawQuery('SELECT DISTINCT tag FROM memory_tags');
+      tags = [for (final r in tagRows) r['tag'] as String];
+    } catch (_) {
+      return null;
+    }
+    if (tags.isEmpty) return null;
+    final additions = <String>{};
+    for (final w in words) {
+      if (w.length < 3) continue; // 太短不展开（易误配）。
+      final tol = typoTolerance(w.length);
+      if (tol == 0) continue;
+      for (final t in tags) {
+        if ((t.length - w.length).abs() > tol) continue; // 长度差剪枝。
+        if (levenshteinDistance(w, t) <= tol) {
+          additions.add(t);
+        }
+      }
+    }
+    if (additions.isEmpty) return null;
+    return buildFtsOrQuery([...words, ...additions]);
   }
 
   /// 按标签精确检索（P1 扩散激活的种子来源之一）。
