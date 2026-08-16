@@ -21,9 +21,9 @@ void main() {
     test('大 JSON 数组 → 统计 + 前几项', () {
       final raw = jsonEncode([for (var i = 0; i < 10000; i++) {'i': i}]);
       final pruned = pruneToolResult(raw);
-      expect(pruned, contains('"_pruned": true'));
-      expect(pruned, contains('"total_items": 10000'));
-      expect(pruned, contains('"shown_count": 5'));
+      expect(pruned, contains('"_pruned":true'));
+      expect(pruned, contains('"total_items":10000'));
+      expect(pruned, contains('"shown_count":5'));
       final decoded = jsonDecode(pruned) as Map<String, dynamic>;
       expect(decoded['_pruned'], true);
       expect((decoded['items'] as List).length, 5);
@@ -31,10 +31,11 @@ void main() {
 
     test('大 JSON 对象 → 键数 + 前几键', () {
       final raw = jsonEncode({
-        for (var i = 0; i < 1000; i++) 'key$i': i,
+        for (var i = 0; i < 10000; i++) 'key$i': i,
       });
       final pruned = pruneToolResult(raw);
-      expect(pruned, contains('"total_keys": 1000'));
+      expect(pruned, contains('"_pruned":true'));
+      expect(pruned, contains('"total_keys":10000'));
       expect(pruned, contains('"shown_keys"'));
     });
 
