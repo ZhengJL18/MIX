@@ -399,6 +399,54 @@ class MemoryDB {
     }
   }
 
+  /// 扩散激活（v4 设计稿 §6.2，TAIPANBOX/engram `graph.py` 算法）：
+  /// 从种子文档沿 links 图 BFS 扩散，每跳能量衰减
+  /// `decay × min(边权, 1.0)`（Hebbian 边权参与）。
+  ///
+  /// 返回按累计激活能量降序的候选 `{'id': docId, 'energy': energy}`——
+  /// 热词定位种子后，沿联想边带出**不含关键词**的关联记忆
+  /// （"像人一样联想"：想起一件事 → 激活关联的事）。
+  Future<List<Map<String, dynamic>>> spreadActivate(
+    List<int> seedIds, {
+    int maxDepth = 2,
+    double decay = 0.5,
+    int limit = 20,
+  }) async {
+    if (seedIds.isEmpty) return const [];
+    final energy = <int, double>{};
+    // BFS 队列：(docId, hop, energy)。
+    final queue = <(int, int, double)>[
+      for (final s in seedIds) (s, 0, 1.0),
+    ];
+    final visited = <int>{};
+    while (queue.isNotEmpty) {
+      final (id, hop, e) = queue.removeAt(0);
+      if (visited.contains(id)) continue;
+      visited.add(id);
+      energy[id] = (energy[id] ?? 0) + e;
+      if (hop >= maxDepth) continue;
+      try {
+        final neighbors = await getNeighbors(id, limit: 20);
+        for (final n in neighbors) {
+          final nid = n['id'] as int;
+          if (visited.contains(nid)) continue;
+          final w = (n['link_weight'] as num?)?.toDouble() ?? 1.0;
+          final next = e * decay * w.clamp(0.0, 1.0);
+          if (next > 0.01) {
+            queue.add((nid, hop + 1, next));
+          }
+        }
+      } catch (_) {
+        continue;
+      }
+    }
+    final sorted = energy.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    return [
+      for (final e in sorted.take(limit)) {'id': e.key, 'energy': e.value},
+    ];
+  }
+
   /// 目标文档的直接邻居（P1 扩散激活用）。
   ///
   /// 图是无向的（Hebbian 关联边）→ 双向查询：邻居是"另一端"的文档，

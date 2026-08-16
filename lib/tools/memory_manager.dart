@@ -58,22 +58,46 @@ class MemoryManager {
     if (q.isEmpty) return base;
     if (isTrivialPrompt(q)) return base; // "hi/thanks/ok" 不触发检索。
     try {
-      final rows = await db.searchMemories(q, limit: 8);
+      // 1. 热词定位种子（FTS5 bm25 / LIKE 降级）。
+      final rows = await db.searchMemories(q, limit: 5);
       if (rows.isEmpty) return base;
+      // 2. 图扩散激活（v4 §6.2）：沿联想边带出跨词关联文档。
+      //    打分：种子按检索序（bm25 优先），邻居按激活能量；
+      //    合并取 top-k（token 预算）。
+      final seedIds = [for (final r in rows) r['id'] as int];
+      final spread = await db.spreadActivate(seedIds, limit: 12);
+      // 候选排序：种子（检索命中，分数随序递减）> 邻居（激活能量）。
+      final scored = <(int, double)>[];
+      for (var i = 0; i < rows.length; i++) {
+        scored.add((rows[i]['id'] as int, 1.0 - 0.05 * i));
+      }
+      final seedSet = seedIds.toSet();
+      for (final s in spread) {
+        final sid = s['id'] as int;
+        if (seedSet.contains(sid)) continue; // 种子已计分。
+        scored.add((sid, (s['energy'] as num).toDouble()));
+      }
+      scored.sort((a, b) => b.$2.compareTo(a.$2));
+      final top = scored.take(8).toList();
+
       final confidence = MemoryConfidence(db);
       final parts = <String>[];
-      for (final r in rows) {
-        final id = r['id'] as int;
+      for (final (id, score) in top) {
         // 置信度门控：可靠度过低（可能过时）跳过。
         final cs = await confidence.score('doc', id);
         if (!confidence.shouldInject(cs)) continue;
+        final doc = await db.getDoc(id);
+        if (doc == null) continue;
         final summary = await db.getSummary(id);
         final raw = summary?['summary'] as String? ??
-            (r['content'] as String? ?? '');
+            (doc['content'] as String? ?? '');
         final snippet = raw.length > 300
             ? '${raw.substring(0, 300)}…'
             : raw;
-        parts.add('• ${r['title']}（${r['kind']}）: $snippet');
+        final tag = seedSet.contains(id)
+            ? '🔍' // 热词命中。
+            : '🔗'; // 联想扩散带出。
+        parts.add('$tag ${doc['title']}（${doc['kind']}）: $snippet');
         // 痕迹层：激活正证据（注入成功才记）。
         try {
           await db.addEvidence('doc', id, 'activated');

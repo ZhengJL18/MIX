@@ -171,4 +171,47 @@ void main() {
       expect(await db.getDoc(other), isNotNull);
     });
   });
+
+  group('spreadActivate', () {
+    test('沿边扩散带出关联文档（含跨词关联）', () async {
+      final seed = await db.upsertDoc(
+          path: 's.md', title: '行列式', content: '行列式的性质');
+      final linked = await db.upsertDoc(
+          path: 'l.md', title: '矩阵', content: '矩阵乘法与求逆');
+      final unrelated = await db.upsertDoc(
+          path: 'u.md', title: '概率', content: '贝叶斯公式');
+      // seed ↔ linked 建边（标签互连模拟）。
+      await db.addLink(seed, linked, kind: 'tag');
+      final spread = await db.spreadActivate([seed]);
+      final ids = spread.map((s) => s['id'] as int).toSet();
+      expect(ids, contains(seed)); // 种子自身。
+      expect(ids, contains(linked)); // 关联文档被带出。
+      expect(ids, isNot(contains(unrelated))); // 无关文档不带出。
+      // 能量排序：种子 > 邻居。
+      final seedEntry = spread.firstWhere((s) => s['id'] == seed);
+      final linkedEntry = spread.firstWhere((s) => s['id'] == linked);
+      expect(seedEntry['energy'], greaterThan(linkedEntry['energy']));
+    });
+
+    test('2 跳扩散 + 衰减', () async {
+      final a = await db.upsertDoc(path: 'a.md', title: 'A', content: 'x');
+      final b = await db.upsertDoc(path: 'b.md', title: 'B', content: 'x');
+      final c = await db.upsertDoc(path: 'c.md', title: 'C', content: 'x');
+      await db.addLink(a, b, kind: 'tag');
+      await db.addLink(b, c, kind: 'tag');
+      final spread = await db.spreadActivate([a], maxDepth: 2);
+      final ids = spread.map((s) => s['id'] as int).toSet();
+      expect(ids, containsAll([a, b, c]));
+      // 能量：a > b > c（每跳 ×0.5）。
+      final eA = spread.firstWhere((s) => s['id'] == a)['energy'] as num;
+      final eB = spread.firstWhere((s) => s['id'] == b)['energy'] as num;
+      final eC = spread.firstWhere((s) => s['id'] == c)['energy'] as num;
+      expect(eA, greaterThan(eB));
+      expect(eB, greaterThan(eC));
+    });
+
+    test('空种子返回空', () async {
+      expect(await db.spreadActivate([]), isEmpty);
+    });
+  });
 }
