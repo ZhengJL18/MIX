@@ -74,10 +74,11 @@ Future<String> memoryReadTool({
     if (docId != null) {
       doc = await db.getDoc(docId);
     } else if (path != null && path.isNotEmpty) {
-      final rows = await db.db.rawQuery(
+      final result = await db.db.select(
         'SELECT * FROM memory_docs WHERE path = ? LIMIT 1',
         [path],
       );
+      final rows = result.toList();
       if (rows.isNotEmpty) doc = rows.first;
     }
     if (doc == null) {
