@@ -35,8 +35,8 @@
 - **笔记库**：`notes_list` / `notes_search` / `notes_read` / `notes_write`（写后聊天侧出「打开笔记」深链）
 - **其他**：`vision_analyze`（独立视觉模型配置）、`read_doc`（格式探测 + 纯 Dart 解包 + 云端 /extract）、`md_to_docx` / `md_to_pdf` / `cloud_extract`、`cron_create/list/delete`（App 存活时触发）、用户脚本（知乎去登录 / 通用复制解锁 / 小红书）
 
-### 记忆子系统（v4 架构，2026-08 起逐步落地，设计见 `docs/MEMORY_SYSTEM_DESIGN.md`）
-- **多记忆文档**：记忆库 `memory.db`（memory_docs / tags / links / summaries / evidence 五表 + FTS5），`memory` 工具写入的内容自动索引为记忆文档
+### 记忆子系统（v4 架构，2026-08 P0-P4 落地，设计见 `docs/MEMORY_SYSTEM_DESIGN.md`）
+- **多记忆文档**：记忆库 `memory.db`（memory_docs / tags / links / summaries / evidence / goals / async_delegations 七表 + FTS5），`memory` 工具写入的内容自动索引为记忆文档；**笔记库（printnotes）增量同步**为记忆文档（`NotesSyncService`，kind='note'，mtime 增量比对）——笔记可被 `memory_search` 检索、进联想图
 - **中文分词**：dart_jieba（Python jieba 纯 Dart 移植，MIT），assets 打包词典（2MB）+ jieba idf.txt（6.2MB 热词权重）；FTS5 预分词检索 + LIKE 降级
 - **热词检索**：`memory_search`（FTS5 bm25 + OR 连接 + 摘要优先 + token 预算）、`memory_read`（全文/摘要）
 - **确定性图建构（P1）**：写入时自动提取热词标签（黑名单 + IDF 门槛 + log 饱和防污染）→ 同标签文档互连（Hebbian 边权）→ 知识点匹配连边（study_engine 知识点入图为 `kind='knowledge'` 文档，扩散沿知识层级走）
@@ -45,6 +45,10 @@
 - **摘要层（P2）**：回合后异步总结激活过的文档（快模型，≤100 字 snippet，原文权威）→ 检索/注入摘要优先
 - **Goal 系统（P3）**：`goal` 工具（create/list/update/progress），持久目标 + revision 乐观锁 + 续跑轮次；进度由置信度引擎证据驱动（`evidence_obj` 关联）
 - **记忆对账（P3）**：`memory_verify`（check 可靠度报告 / verify 正证据 / stale 负证据），时点快照原则——引用外部状态前先对账，结果写回证据形成"越用越可信"闭环
+- **工具结果 pruner（P3）**：超大工具输出确定性裁剪（JSON 统计/文本头部），防淹没上下文
+- **技能目录注入（P3）**：技能名+描述并入系统提示 volatile 层（`<skills-catalog>`），agent 不遗忘可用技能
+- **异步委派（P3）**：`delegate_task_async` 派发立即返回 delegation_id 后台执行 + `delegation_status` 查询（async_delegations 表）
+- **学习描绘（P4）**：判题落库写知识点证据（correct/wrong）→ `MemoryLearning` 推导可提取性/掌握/遗忘（状态分类 mastered/learning/weak/review_due）→ `study_status` 工具（复习推荐）；`MemoryProfileProjector` 证据驱动画像投影（回合后刷新 `memory/profile.md`）
 
 ### 学习模式（核心特色：聊天即学习主场）
 - `StudyEngine`：SQLite 事实层（subjects / knowledge_points / questions / practice_records），**掌握度 = 近 15 题正确率的 SQL 现场聚合**，零公式零 LLM
@@ -96,7 +100,8 @@ lib/
 ├── printnotes/     # 笔记子系统（自包含 markdown 渲染引擎 + 笔记库 UI）
 ├── refine/         # 自进化管线（轨迹 / prompt notes / 编辑台账）
 ├── screens/        # 聊天 / 设置 / 历史 / 技能 / GitHub / 保险柜等页面
-├── services/       # 多代理 / 学习引擎 / 出题 / 保险柜 / 更新 / 权限等服务
+├── services/       # 记忆子系统（记忆库/分词/索引/置信度/摘要/学习/投影/笔记同步）
+                    #   + 多代理 / 学习引擎 / 出题 / 保险柜 / 更新 / 权限
 ├── skills/         # 技能系统（SKILL.md 发现 / 解析）
 ├── theme/          # 集中式主题系统（AppPalette + 5 套主题）
 ├── tools/          # 工具实现（registry / model_tools / 各工具模块）
@@ -106,7 +111,7 @@ skills/             # 内置技能（question-design 出题方法论）
 assets/             # katex（打包进 APK）/ mermaid（按需下载）/ mirror-sync / remote-runner
 third_party/        # 本地 patch 的第三方插件（AGP 9 兼容，见下）
 docs/               # HERMES_MAPPING.md（复刻映射表）/ HANDOFF.md（交接说明）
-test/               # 27 个测试文件
+test/               # 39 个测试文件
 ```
 
 ## 关键约定与踩坑（接手必读）
@@ -142,7 +147,7 @@ flutter build apk --release     # Android
 flutter test
 ```
 
-27 个测试覆盖：agent 主循环（防死循环 / 消息清洗 / 迭代预算）、LLM 流式聚合、错误分类、上下文压缩、工具注册与参数强转、schema 清洗、记忆 / todo / session_db、模糊匹配 / SequenceMatcher、vault 加密往返、web 搜索后端等。
+39 个测试文件覆盖：agent 主循环（防死循环 / 消息清洗 / 迭代预算）、LLM 流式聚合、错误分类、上下文压缩、工具注册与参数强转、schema 清洗、记忆子系统（记忆库 CRUD/检索/标签/链接/证据/摘要/置信度/热词/索引/学习状态/画像投影/笔记同步/goal/对账/异步委派/pruner）、模糊匹配 / SequenceMatcher、vault 加密往返、web 搜索后端等。
 注意：`markdown_math_test` / `matrix_test` 因 markdown_widget 引擎的 visibility_detector 全局 Timer 与测试框架不兼容，**全部 skip**（引擎由 printnotes 生产验证）。
 
 ## 文档导航
