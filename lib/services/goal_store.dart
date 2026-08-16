@@ -84,7 +84,7 @@ class GoalStore {
   /// 乐观锁更新：调用方携带当前 [expectedRevision]，不匹配返回 false。
   Future<bool> updateGoal(
     int id, {
-    int expectedRevision,
+    required int expectedRevision,
     String? objective,
     String? phase,
     String? blockedReason,
