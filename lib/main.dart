@@ -1511,6 +1511,22 @@ class _ChatScreenState extends State<ChatScreen> {
       final skillsRoot = '$dir/skills';
       Directory(skillsRoot).createSync(recursive: true);
       registerSkillTools(skillsRoot: skillsRoot);
+      // P3 技能目录注入（DSH 启示 4）：技能名+一句话并入 agent 系统提示
+      // volatile 层，避免想不起可用技能。
+      skillCatalogProvider = () {
+        final d = skillDiscovery;
+        if (d == null) return '';
+        try {
+          final skills = d.findAllSkills();
+          if (skills.isEmpty) return '';
+          final lines = [
+            for (final s in skills) '- ${s.name}: ${s.description}',
+          ];
+          return '<skills-catalog>\nAvailable skills:\n${lines.join('\n')}\n</skills-catalog>';
+        } catch (_) {
+          return '';
+        }
+      };
     } catch (_) {}
     // 学习模式：study.db（事实层）+ 画像/讲义目录。
     try {
