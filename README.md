@@ -41,7 +41,10 @@
 - **热词检索**：`memory_search`（FTS5 bm25 + OR 连接 + 摘要优先 + token 预算）、`memory_read`（全文/摘要）
 - **确定性图建构（P1）**：写入时自动提取热词标签（黑名单 + IDF 门槛 + log 饱和防污染）→ 同标签文档互连（Hebbian 边权）→ 知识点匹配连边（study_engine 知识点入图为 `kind='knowledge'` 文档，扩散沿知识层级走）
 - **置信度引擎（P1）**：检索/读取/激活/作答事件流（memory_evidence）→ Beta-Binomial 置信度 + 遗忘衰减 → 注入门控（可靠度低不注入，"宁可缺不可杂"）
-- **异步预取**：每轮 `prefetchRecall` 冻结快照 + 热词检索合成 `<memory-context>` 围栏注入当前轮（保 prefix cache）
+- **异步预取**：每轮 `prefetchRecall` 冻结快照 + 热词检索合成 `<memory-context>` 围栏注入当前轮（保 prefix cache），**有界等待 8s 超时跳过**
+- **摘要层（P2）**：回合后异步总结激活过的文档（快模型，≤100 字 snippet，原文权威）→ 检索/注入摘要优先
+- **Goal 系统（P3）**：`goal` 工具（create/list/update/progress），持久目标 + revision 乐观锁 + 续跑轮次；进度由置信度引擎证据驱动（`evidence_obj` 关联）
+- **记忆对账（P3）**：`memory_verify`（check 可靠度报告 / verify 正证据 / stale 负证据），时点快照原则——引用外部状态前先对账，结果写回证据形成"越用越可信"闭环
 
 ### 学习模式（核心特色：聊天即学习主场）
 - `StudyEngine`：SQLite 事实层（subjects / knowledge_points / questions / practice_records），**掌握度 = 近 15 题正确率的 SQL 现场聚合**，零公式零 LLM

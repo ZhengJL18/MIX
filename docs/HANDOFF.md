@@ -47,11 +47,13 @@
   - **踩坑（8-14 修）**：判题不能复用 clarify 的 `_isClarifyCorrect`——clarify 的 answer 是字母（"B"），quiz 的 answer 是**选项文本**，点选项传字母会选对判错。专用 `_isQuizCorrect(picked, q)`：字母↔选项文本双向规约再匹配，判题与选项高亮共用。
   - 题卡内容走 `MIXMarkdown`（LaTeX 渲染）；选择题卡底部支持自定义答案输入（`_CustomAnswerField`）；卡片高度按内容估算自适应（`_cardHeight`），尽量一屏放下 4 选项。
 
-### 记忆子系统（v4 架构，2026-08-16 P0+P1 落地，设计见 `docs/MEMORY_SYSTEM_DESIGN.md`）
-- **P0 检索端**：`memory.db`（memory_docs/tags/links/summaries/evidence 五表 + FTS5）；dart_jieba 中文分词（assets/dict.dgz 2MB 复制到私有目录加载）；`memory_search`（bm25+OR+摘要优先）/ `memory_read` 工具（memory toolset）；`MemoryManager.prefetchRecall` 每轮冻结快照+热词检索合成 `<memory-context>` 注入。⚠️ **FTS5 可用性因设备而异**（AOSP 系统 SQLite 未编译 FTS5，sqflite 走系统库）——代码已 LIKE 降级，**真机必须验证**；长期方案迁 `sqlite3` 3.x 自带 FTS5。
+### 记忆子系统（v4 架构，2026-08-16 P0-P3 逐步落地，设计见 `docs/MEMORY_SYSTEM_DESIGN.md`）
+- **P0 检索端**：`memory.db`（memory_docs/tags/links/summaries/evidence/goals/async_delegations 七表 + FTS5）；dart_jieba 中文分词（assets/dict.dgz 2MB 复制到私有目录加载）；`memory_search`（bm25+OR+摘要优先）/ `memory_read` 工具（memory toolset）；`MemoryManager.prefetchRecall` 每轮冻结快照+热词检索合成 `<memory-context>` 注入 + 8s 有界等待。⚠️ **FTS5 可用性因设备而异**（AOSP 系统 SQLite 未编译 FTS5）——代码已 LIKE 降级，**真机必须验证**；长期方案迁 `sqlite3` 3.x 自带 FTS5。
 - **P1 图建构 + 置信度**：`MemoryIndexer`（memory 工具写入后自动提取热词标签 → 同标签互连 Hebbian → 知识点匹配连边，study_engine 知识点入图为 `kind='knowledge'` 文档）；`MemoryConfidence`（Beta 置信度 + 遗忘衰减 + 注入门控）；检索/读取/激活写证据痕迹。
-- **踩坑（8-16）**：① dart_jieba 内部用 `dart:io File` 读词典，Flutter assets 不能 File 读 → `initChineseSegmenter` 把 assets/dict.dgz 复制到私有目录 `.mix_cache/` 再加载（包自身未声明 flutter assets，词典须自带）；② `markTestSkipped` 不在 flutter_test 导出（test_compat.dart 只 show Fake）→ 测试用 `skip:` 参数（main 里先初始化再注册 test 让 skip 正确求值）；③ sqflite 默认外键关闭 → memory.db init 显式 `PRAGMA foreign_keys = ON`，deleteDoc 同时手动清理关联（双保险）；④ `upsertSummary` 的 docMtime 是位置参数，测试误用命名参数导致 analyze 编译失败；⑤ CI analyze 日志需登录才能看 → workflow 加 "Expose analyze details" 步骤把错误写进公开 annotations。
-- **遗留**：P2 异步骨架（prefetch 有界 8s / 单 worker 保序 / 摘要层 / 决策点注入）；P3 Agent 层（Goal/异步委派/pruner/技能注入/记忆对账）；P4 学习描绘（可提取性/遗忘节律）。真机 FTS5 + 分词器验证未做。
+- **P2 摘要层**：`MemorySummarizer`（回合后 finally 异步总结激活过的文档，快模型 summarizeFn 注入，≤160 字 snippet；原文权威、stale 重生成）。
+- **P3 Goal + 对账**：`GoalStore`（goals/async_delegations 表；create/get/list/update + revision 乐观锁 + advanceRound 续跑 + deriveProgress 证据驱动进度）；`goal` 工具（create/list/update/progress）；`memory_verify` 工具（check/verify/stale，对账闭环）。
+- **踩坑（8-16）**：① dart_jieba 内部用 `dart:io File` 读词典，Flutter assets 不能 File 读 → `initChineseSegmenter` 把 assets/dict.dgz 复制到私有目录 `.mix_cache/` 再加载（包自身未声明 flutter assets，词典须自带）；② `markTestSkipped` 不在 flutter_test 导出（test_compat.dart 只 show Fake）→ 测试用 `skip:` 参数（main 里先初始化再注册 test 让 skip 正确求值）；③ sqflite 默认外键关闭 → memory.db init 显式 `PRAGMA foreign_keys = ON`，deleteDoc 同时手动清理关联（双保险）；④ `upsertSummary` 的 docMtime 是位置参数，测试误用命名参数导致 analyze 编译失败；⑤ CI analyze 日志需登录才能看 → workflow 加 "Expose analyze details" 步骤把错误写进公开 annotations（GitHub ::error:: 换行要 %0A 转义、annotation 上限 10 条，失败详情块用 python 正则提取）；⑥ **Dart 非空可选命名参数必须 required 或默认值**（`updateGoal` 的 `int expectedRevision` 缺 required 导致 goal_store_test 编译失败，flutter analyze 未报、flutter test 加载才报）；⑦ 图边是无向的 → `getNeighbors` 必须双向查询（`src=? OR dst=?` + CASE 取另一端）。
+- **遗留**：P2 单 worker 保序写 / 决策点注入未做；P3 工具结果 pruner / 技能目录注入 / 异步委派执行器未做；P4 学习描绘（可提取性/遗忘节律/画像投影）未做。真机 FTS5 + 分词器验证未做。
 
 ### 对话体验
 - Markdown 渲染；LaTeX 公式（行内 `$...$`、块 `$$...$$`，支持矩阵/方程组/行列式/下标/分数等）。
