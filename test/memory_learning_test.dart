@@ -76,7 +76,7 @@ void main() {
       await db.addEvidence('knowledge', kpId, 'correct');
       await db.addEvidence('knowledge', kpId, 'correct');
       // 证据老化（20 天前）。
-      await db.db.execute(
+      db.db.execute(
         'UPDATE memory_evidence SET ts = ts - ?1 WHERE obj_id = ?2',
         [20 * 24 * 3600.0, kpId],
       );
@@ -94,7 +94,7 @@ void main() {
       await db.addEvidence('knowledge', weakKp, 'wrong');
       final dueKp = await makeKp('到期点');
       await db.addEvidence('knowledge', dueKp, 'correct');
-      await db.db.execute(
+      db.db.execute(
         'UPDATE memory_evidence SET ts = ts - ?1 WHERE obj_id = ?2',
         [10 * 24 * 3600.0, dueKp],
       );

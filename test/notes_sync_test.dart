@@ -65,11 +65,10 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 20));
       final count = await sync.syncNotes();
       expect(count, 1);
-      final rows = await db.db.query(
-        'memory_docs',
-        where: 'path = ?',
-        whereArgs: ['notes/线性代数.md'],
+      final result = await db.db.select(
+        "SELECT * FROM memory_docs WHERE path = 'notes/线性代数.md'",
       );
+      final rows = result.toList();
       expect(rows.length, 1); // 覆盖而非新增。
       expect((rows.first['content'] as String), contains('更新后'));
     });

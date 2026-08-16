@@ -35,14 +35,12 @@ class GoalStore {
     if (objective.trim().isEmpty) return null;
     final now = DateTime.now().millisecondsSinceEpoch / 1000.0;
     try {
-      return await db.db.insert('goals', {
-        'objective': objective.trim(),
-        'phase': GoalPhase.active,
-        'max_rounds': maxRounds,
-        'evidence_obj': evidenceObj,
-        'created_at': now,
-        'updated_at': now,
-      });
+      db.db.execute(
+        'INSERT INTO goals(objective, phase, max_rounds, evidence_obj, '
+        'created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [objective.trim(), GoalPhase.active, maxRounds, evidenceObj, now, now],
+      );
+      return db.db.lastInsertRowId;
     } catch (_) {
       return null;
     }
@@ -50,35 +48,39 @@ class GoalStore {
 
   /// 读单个 goal。
   Future<Map<String, dynamic>?> getGoal(int id) async {
-    final rows = await db.db.query(
-      'goals',
-      where: 'id = ?',
-      whereArgs: [id],
-      limit: 1,
+    final result = db.db.select(
+      'SELECT * FROM goals WHERE id = ? LIMIT 1',
+      [id],
     );
-    return rows.isEmpty ? null : rows.first;
+    final cols = result.columnNames;
+    return result.isEmpty
+        ? null
+        : {for (final c in cols) c: result.first[c]};
   }
 
   /// 列出目标（按 phase 过滤，可选）。
   Future<List<Map<String, dynamic>>> listGoals({String? phase}) async {
-    final rows = await db.db.query(
-      'goals',
-      where: phase != null ? 'phase = ?' : null,
-      whereArgs: phase != null ? [phase] : null,
-      orderBy: 'updated_at DESC',
-    );
-    return rows;
+    final result = phase != null
+        ? db.db.select(
+            'SELECT * FROM goals WHERE phase = ? ORDER BY updated_at DESC',
+            [phase])
+        : db.db.select('SELECT * FROM goals ORDER BY updated_at DESC');
+    final cols = result.columnNames;
+    return [
+      for (final r in result) {for (final c in cols) c: r[c]},
+    ];
   }
 
   /// 活跃目标（phase=active 且未超轮次上限）。
   Future<List<Map<String, dynamic>>> listActiveGoals() async {
-    final rows = await db.db.query(
-      'goals',
-      where: 'phase = ?',
-      whereArgs: [GoalPhase.active],
-      orderBy: 'updated_at DESC',
+    final result = db.db.select(
+      'SELECT * FROM goals WHERE phase = ? ORDER BY updated_at DESC',
+      [GoalPhase.active],
     );
-    return rows;
+    final cols = result.columnNames;
+    return [
+      for (final r in result) {for (final c in cols) c: r[c]},
+    ];
   }
 
   /// 乐观锁更新：调用方携带当前 [expectedRevision]，不匹配返回 false。
@@ -102,13 +104,14 @@ class GoalStore {
     if (evidenceObj != null) updates['evidence_obj'] = evidenceObj;
     updates['revision'] = expectedRevision + 1; // 乐观锁递增。
     try {
-      final n = await db.db.update(
-        'goals',
-        updates,
-        where: 'id = ? AND revision = ?',
-        whereArgs: [id, expectedRevision],
+      final sets = updates.keys.map((k) => '$k = ?').join(', ');
+      final args = <Object?>[...updates.values, id, expectedRevision];
+      db.db.execute(
+        'UPDATE goals SET $sets WHERE id = ? AND revision = ?',
+        args,
       );
-      return n > 0;
+      final changed = db.db.select('SELECT changes() AS n');
+      return changed.isNotEmpty && (changed.first['n'] as int) > 0;
     } catch (_) {
       return false;
     }

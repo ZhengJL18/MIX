@@ -49,12 +49,11 @@ class NotesSyncService {
           final stat = file.statSync();
           final mtime = stat.modified.millisecondsSinceEpoch;
           // 增量：mtime 未变则跳过。
-          final rows = await db.db.query(
-            'memory_docs',
-            where: 'path = ?',
-            whereArgs: ['notes/$rel'],
-            limit: 1,
+          final result = await db.db.select(
+            "SELECT * FROM memory_docs WHERE path = ? LIMIT 1",
+            ['notes/$rel'],
           );
+          final rows = result.toList();
           if (rows.isNotEmpty && (rows.first['mtime'] as int?) == mtime) {
             continue;
           }
