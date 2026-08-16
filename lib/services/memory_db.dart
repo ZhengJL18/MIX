@@ -334,8 +334,10 @@ class MemoryDB {
     if (tags.isEmpty) return null;
     final additions = <String>{};
     for (final w in words) {
-      if (w.length < 3) continue; // 太短不展开（易误配）。
-      final tol = typoTolerance(w.length);
+      if (w.length < 2) continue; // 单字不展开（易误配）。
+      // 2 字词也给 1 错余地（候选来自真实标签库，误配风险低；
+      // 专名如"泊松/泊菘" 2 字常被记错）。
+      final tol = w.length <= 2 ? 1 : typoTolerance(w.length);
       if (tol == 0) continue;
       for (final t in tags) {
         if ((t.length - w.length).abs() > tol) continue; // 长度差剪枝。
