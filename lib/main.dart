@@ -35,6 +35,7 @@ import 'refine/refine_pipeline.dart';
 import 'refine/trajectory_store.dart';
 import 'screens/settings_screen.dart';
 import 'services/chinese_segmenter.dart';
+import 'services/debug_server.dart';
 import 'services/goal_store.dart';
 import 'services/memory_db.dart';
 import 'services/memory_indexer.dart';
@@ -430,6 +431,7 @@ class _ChatScreenState extends State<ChatScreen> {
   MemoryLearning? _memoryLearning;
   MemoryProfileProjector? _memoryProfile;
   NotesSyncService? _notesSync;
+  DebugServer? _debugServer;
   /// 活跃目标缓存（goal provider 同步读取；回合后异步刷新）。
   String _activeGoalsBlock = '';
   SessionDB? _sessionDb;
@@ -1704,6 +1706,19 @@ class _ChatScreenState extends State<ChatScreen> {
         );
         await _notesSync!.syncNotes();
       }
+    } catch (_) {}
+    // 调试服务（真机验证 CLI 通道，2026-08）：127.0.0.1 回环，
+    // adb forward 后从主机交互；所有记忆子系统状态可读。
+    try {
+      _debugServer = DebugServer(
+        memoryDb: _memoryDb,
+        studyEngine: _studyEngine,
+        goalStore: _goalStore,
+        learning: _memoryLearning,
+        tagger: _memoryTagger,
+        notesSync: _notesSync,
+      );
+      await _debugServer!.start();
     } catch (_) {}
     // 自进化（Continual Harness）：轨迹 / prompt notes / 编辑台账。
     try {
