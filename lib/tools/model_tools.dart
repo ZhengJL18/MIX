@@ -18,6 +18,7 @@ import 'dart:convert';
 
 import 'registry.dart';
 import 'schema_sanitizer.dart';
+import 'tool_result_pruner.dart';
 import 'toolsets.dart';
 
 /// 进程内缓存：getToolDefinitions 的 memoized 结果。
@@ -464,7 +465,10 @@ Future<String> handleFunctionCall(
   // registry.dispatch。
 
   final result = await registry.dispatch(functionName, args);
-  return result is String ? result : jsonEncode(result);
+  final str = result is String ? result : jsonEncode(result);
+  // 工具结果确定性裁剪（DSH 启示 3，v4 §7.3）：超大结果 → 结构统计摘要，
+  // 防淹没上下文。未超限原样返回。
+  return pruneToolResult(str);
 }
 
 /// 顶层工具错误净化器（对应 Python `model_tools._sanitize_tool_error`）。
