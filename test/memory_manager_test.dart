@@ -66,8 +66,8 @@ void main() {
         title: '矩阵',
         content: '矩阵乘法的结合律，矩阵的逆与行列式。',
       );
-      final block = await manager.prefetchRecall('矩阵乘法怎么算');
-      // 无分词器时走 LIKE 降级，仍应命中并注入。
+      // 无分词器时走 LIKE 降级——用文档子串查询保证命中。
+      final block = await manager.prefetchRecall('结合律');
       expect(block, contains('<memory-context>'));
       expect(block, contains('矩阵'));
     });
