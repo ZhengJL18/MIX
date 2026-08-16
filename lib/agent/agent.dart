@@ -324,9 +324,17 @@ class MIXAgent {
     // ── Prologue：组装 messages ──
     // 有记忆管理器时，把冻结快照 + 记忆检索拼进 system prompt（Hermes 记忆注入
     // + v4 §5 prefetchRecall：热词检索记忆文档，<memory-context> 围栏注入）。
+    // 有界等待 8s（Hermes prefetch_all 范式）：超时跳过本轮，不阻塞对话。
     memoryManager?.onTurnStart();
     var effectiveSystem = systemPrompt;
-    final memoryBlock = await memoryManager?.prefetchRecall(userMessage) ?? '';
+    String memoryBlock;
+    try {
+      memoryBlock = await (memoryManager?.prefetchRecall(userMessage) ??
+              Future.value(''))
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      memoryBlock = ''; // 超时/异常 → 跳过记忆预取（宁可缺，不可杂）。
+    }
     if (memoryBlock.isNotEmpty) {
       effectiveSystem = '$effectiveSystem\n\n$memoryBlock';
     }

@@ -37,6 +37,7 @@ import 'screens/settings_screen.dart';
 import 'services/chinese_segmenter.dart';
 import 'services/memory_db.dart';
 import 'services/memory_indexer.dart';
+import 'services/memory_summarizer.dart';
 import 'services/memory_tagger.dart';
 import 'services/multi_agent.dart';
 import 'services/storage_permission.dart';
@@ -417,6 +418,7 @@ class _ChatScreenState extends State<ChatScreen> {
   MemoryDB? _memoryDb;
   MemoryTagger? _memoryTagger;
   MemoryIndexer? _memoryIndexer;
+  MemorySummarizer? _memorySummarizer;
   SessionDB? _sessionDb;
   String? _currentSessionId;
   // 加载代际：每次加载递增，返回时若代际过期则丢弃结果（防并发加载串记录）。
@@ -944,6 +946,14 @@ class _ChatScreenState extends State<ChatScreen> {
       });
     }
     _recordTrajectoryAndRefine(task, lastResult, ranError);
+    // P2 摘要层（v4 §9）：回合后异步总结激活过的记忆文档（fire-and-forget，
+    // 不阻塞 UI；摘要生成走快模型，失败静默）。
+    try {
+      final s = _memorySummarizer;
+      if (s != null) {
+        unawaited(s.summarizeActivated());
+      }
+    } catch (_) {}
   }
 
   /// 任务完成后：写轨迹 + fire-and-forget 触发自进化建议。
@@ -1545,6 +1555,42 @@ class _ChatScreenState extends State<ChatScreen> {
             }
           } catch (_) {}
         };
+      }
+    } catch (_) {}
+    // P2 摘要层（v4 §9 激活即总结）：回合后异步总结激活过的记忆文档。
+    // summarizeFn 用快模型（fast_agent 配置，无则主配置），失败静默。
+    try {
+      final md = _memoryDb;
+      if (md != null) {
+        final fastEffort =
+            MIXConfig.effortValueToKey(await MIXConfig.loadEffort('fast_agent'));
+        final fast = await MIXConfig.loadFastConfig(effort: fastEffort);
+        final llmCfg =
+            fast ?? (await MIXConfig.load())?.toLlmConfig(effort: null);
+        if (llmCfg != null) {
+          final client = OpenAiLlmClient(config: llmCfg);
+          _memorySummarizer = MemorySummarizer(
+            db: md,
+            summarizeFn: (title, content) async {
+              final res = await client.chatStream(
+                messages: [
+                  {
+                    'role': 'system',
+                    'content':
+                        '你是记忆摘要助手。把内容总结为不超过100字的中文要点，'
+                        '保留关键事实/数字/专名，不要寒暄，不要列表。',
+                  },
+                  {
+                    'role': 'user',
+                    'content': '标题：$title\n\n内容：$content',
+                  },
+                ],
+                maxTokens: 200,
+              );
+              return res.content;
+            },
+          );
+        }
       }
     } catch (_) {}
     try {
