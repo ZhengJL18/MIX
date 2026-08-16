@@ -63,12 +63,14 @@ class NotesSyncService {
           final idx = indexer;
           final int? newId;
           if (idx != null) {
-            // 自动标签 + 知识点边 + upsert 一步完成。
+            // 自动标签 + 知识点边 + upsert 一步完成（mtime 用文件时间戳，
+            // 供下次增量比对）。
             newId = await idx.indexEntry(
               path: 'notes/$rel',
               title: title,
               content: content,
               kind: 'note',
+              mtime: mtime,
             );
           } else {
             newId = await db.upsertDoc(
@@ -76,6 +78,7 @@ class NotesSyncService {
               title: title,
               content: content,
               kind: 'note',
+              mtime: mtime,
             );
           }
           if (newId != null) updated++;

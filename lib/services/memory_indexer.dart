@@ -34,12 +34,14 @@ class MemoryIndexer {
   /// [path] 稳定标识（同 path 重复索引会更新而非重复插入）。
   /// [title] 文档标题（用于 FTS 标题检索）。
   /// [kind] 文档类型（memory/daily/topic...）。
+  /// [mtime] 外部时间戳（文件 mtime 等，供增量同步）。
   /// 返回文档 id；失败返回 null（不抛，写路径容错）。
   Future<int?> indexEntry({
     required String path,
     required String title,
     required String content,
     String kind = 'memory',
+    int? mtime,
   }) async {
     try {
       final docId = await db.upsertDoc(
@@ -47,6 +49,7 @@ class MemoryIndexer {
         title: title,
         content: content,
         kind: kind,
+        mtime: mtime,
       );
       await _autoTag(docId, content);
       await _linkKnowledge(docId, '$title $content');

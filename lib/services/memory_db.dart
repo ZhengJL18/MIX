@@ -161,6 +161,9 @@ class MemoryDB {
   // ------------------------------------------------------------------
 
   /// 新增或更新记忆文档。内容变化时同步分词列进 FTS。
+  ///
+  /// [mtime] 可指定外部时间戳（如文件 mtime，供增量同步比对）；
+  /// 缺省用当前时间。
   Future<int> upsertDoc({
     required String path,
     required String title,
@@ -168,8 +171,9 @@ class MemoryDB {
     String kind = 'memory',
     double importance = 0.5,
     String? frozenSnapshot,
+    int? mtime,
   }) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
+    final now = mtime ?? DateTime.now().millisecondsSinceEpoch;
     final existing = await db.query(
       'memory_docs',
       where: 'path = ?',
