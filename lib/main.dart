@@ -422,6 +422,10 @@ class _ChatScreenState extends State<ChatScreen> {
   int _discussionMsgIdx = -1; // 当前讨论消息索引（-1 表示无）。
   final Map<String, String> _lastPerspectiveOutputs = {}; // 视角 → 最终发言。
   int _reasoningMsgIdx = -1; // 当前"思考中"块索引（-1 表示无）。
+  // 本轮流式输出的起点（agent 重试回滚用）：记录 onDelta 首次追加的
+  // assistant 消息索引及追加前文本；回滚时据此恢复，防止重试导致文本重复。
+  int _streamStartMsgIdx = -1;
+  String? _streamStartText;
   MemoryManager? _memory;
   MemoryDB? _memoryDb;
   MemoryTagger? _memoryTagger;
@@ -852,12 +856,17 @@ class _ChatScreenState extends State<ChatScreen> {
     // plan 执行时跳过（计划本身已是上下文，避免基于长拼接文本搜到无关内容）。
     final retrieved =
         skipRetrieval ? <ContextHit>[] : await _retrieveRelevantContext(task);
+    // 新一轮：重置流式回滚起点（防止上一轮残留值导致本轮起点漏记）。
+    _streamStartMsgIdx = -1;
+    _streamStartText = null;
     _activeAgent = MIXAgent(
       llm: llm,
       memoryManager: _memory,
       sessionDb: _sessionDb,
       sessionId: _currentSessionId,
       contextCompressor: compressor,
+      // 用当前工作流的 maxSteps 做迭代预算（死配置接线）。
+      maxIterations: _currentWorkflow.maxSteps,
       systemPrompt: _buildWorkflowPrompt(
         contextBlock: formatContextBlock(retrieved),
       ),
@@ -897,13 +906,47 @@ class _ChatScreenState extends State<ChatScreen> {
           // assistant；否则拼接。修复 refine 卡在末尾时 delta 被静默丢弃。
           if (_messages.isEmpty || _messages.last.role != 'assistant') {
             _messages.add(_ChatMessage.assistant(delta));
+            if (_streamStartMsgIdx < 0) {
+              _streamStartMsgIdx = _messages.length - 1;
+              _streamStartText = '';
+            }
           } else {
             final last = _messages.last;
+            if (_streamStartMsgIdx < 0) {
+              _streamStartMsgIdx = _messages.length - 1;
+              _streamStartText = last.text ?? '';
+            }
             _messages[_messages.length - 1] = _ChatMessage.assistant(
                 (last.text ?? '') + delta);
           }
         });
         _scrollToBottom();
+      },
+      // agent 重试前调用：回滚本轮已流式输出的增量，重试从头输出不重复。
+      onStreamRollback: () {
+        if (_streamStartMsgIdx < 0) return;
+        setState(() {
+          if (_streamStartMsgIdx < _messages.length &&
+              _messages[_streamStartMsgIdx].role == 'assistant') {
+            if (_streamStartText == '') {
+              // 本轮新建的 assistant 消息 → 整条删除。
+              _messages.removeAt(_streamStartMsgIdx);
+              // 删除后后续索引整体前移 1，防 _toolRunningIdx 错位。
+              for (final k in _toolRunningIdx.keys.toList()) {
+                final v = _toolRunningIdx[k];
+                if (v != null && v > _streamStartMsgIdx) {
+                  _toolRunningIdx[k] = v - 1;
+                }
+              }
+            } else {
+              // 追加到已有 assistant → 截断回追加前文本。
+              _messages[_streamStartMsgIdx] =
+                  _ChatMessage.assistant(_streamStartText!);
+            }
+          }
+          _streamStartMsgIdx = -1;
+          _streamStartText = null;
+        });
       },
       onToolEvent: (name, status) {
         setState(() {
@@ -1719,6 +1762,7 @@ class _ChatScreenState extends State<ChatScreen> {
         learning: _memoryLearning,
         tagger: _memoryTagger,
         notesSync: _notesSync,
+        indexer: _memoryIndexer,
       );
       await _debugServer!.start();
     } catch (_) {}

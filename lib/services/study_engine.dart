@@ -17,7 +17,7 @@ class KpInfo {
   final int subjectId;
   final String name;
   final String subjectName;
-  final double mastery; // 近 [masteryWindow] 题正确率（无记录则 null→0.5）。
+  final double mastery; // 全部作答正确率（无记录则 null→0.5）。
   final int recentCount;
 
   KpInfo({
@@ -157,7 +157,7 @@ class StudyEngine {
     return db.insert('knowledge_points', {'subject_id': subjectId, 'name': name});
   }
 
-  /// 所有知识点（含掌握度）。
+  /// 所有知识点（含掌握度，单条聚合 SQL，无 N+1）。
   Future<List<KpInfo>> listKps() async {
     final rows = await db.rawQuery('''
       SELECT kp.id, kp.subject_id, kp.name, s.name AS subject_name
@@ -165,42 +165,41 @@ class StudyEngine {
       JOIN subjects s ON s.id = kp.subject_id
       ORDER BY s.name, kp.name
     ''');
-    final out = <KpInfo>[];
-    for (final r in rows) {
-      final kpId = r['id'] as int;
-      final (mastery, recent) = await _masteryOf(kpId);
-      out.add(KpInfo(
-        id: kpId,
-        subjectId: r['subject_id'] as int,
-        name: r['name'] as String,
-        subjectName: r['subject_name'] as String,
-        mastery: mastery,
-        recentCount: recent,
-      ));
-    }
-    return out;
+    final masteryByKp = await _masteryMap();
+    return [
+      for (final r in rows)
+        KpInfo(
+          id: r['id'] as int,
+          subjectId: r['subject_id'] as int,
+          name: r['name'] as String,
+          subjectName: r['subject_name'] as String,
+          mastery: masteryByKp[r['id'] as int]?.$1 ?? 0.5,
+          recentCount: masteryByKp[r['id'] as int]?.$2 ?? 0,
+        ),
+    ];
   }
 
-  /// 单个知识点掌握度（近 [masteryWindow] 次作答正确率，无记录→0.5）。
+  /// 全量知识点掌握度：单条 JOIN 聚合 SQL（GROUP BY kp_id）。
   ///
-  /// 原实现取"最近创建的 N 道题"再聚合它们的作答：练旧题（id 小）时该次
-  /// 作答不计入，掌握度失真。改为按作答记录时间取最近 N 次，符合
-  /// "近 N 题正确率"语义，也避免同一题答多次被重复计入分母。
-  Future<(double, int)> _masteryOf(int kpId) async {
-    final qRows = await db.rawQuery(
-        'SELECT id FROM questions WHERE kp_id = ?', [kpId]);
-    final qIds = [for (final r in qRows) r['id'] as int];
-    if (qIds.isEmpty) return (0.5, 0);
-    final placeholders = List.filled(qIds.length, '?').join(',');
-    final pr = await db.rawQuery('''
-      SELECT correct FROM practice_records
-      WHERE question_id IN ($placeholders)
-      ORDER BY id DESC
-      LIMIT ?
-    ''', [...qIds, masteryWindow]);
-    if (pr.isEmpty) return (0.5, 0);
-    final correct = pr.where((r) => (r['correct'] as int) == 1).length;
-    return (correct / pr.length, pr.length);
+  /// 原实现先取该 KP 全部题目 id 再拼 `IN (?,...)`——知识点题目数超 SQLite
+  /// 变量上限（999）直接炸查询，且 listKps 每 KP 两查（N+1）。改为一次聚合：
+  /// 掌握度 = 该 KP 全部作答中 correct=1 占比，无作答 → 0.5。
+  Future<Map<int, (double, int)>> _masteryMap() async {
+    final rows = await db.rawQuery('''
+      SELECT q.kp_id,
+             COUNT(*) AS total,
+             SUM(CASE WHEN pr.correct = 1 THEN 1 ELSE 0 END) AS correct
+      FROM practice_records pr
+      JOIN questions q ON q.id = pr.question_id
+      GROUP BY q.kp_id
+    ''');
+    return {
+      for (final r in rows)
+        r['kp_id'] as int: (
+          (r['correct'] as int) / (r['total'] as int),
+          r['total'] as int,
+        ),
+    };
   }
 
   // ── 题目 ──
@@ -246,12 +245,20 @@ class StudyEngine {
 
   // ── 判题（机械，归一化） ──
 
-  /// 归一化答案：去空白/标点/大小写，容错 "A. xxx" / "选A" / "a"。
+  /// 归一化答案：去空白/标点/大小写，容错 "A." / "选A" / "答案：B" / "a"。
   String normalizeAnswer(String raw) {
     var s = raw.trim();
-    // 提取首字母（"A." / "选A" / "选项 B"）。
-    final m = RegExp(r'[A-Da-d]').firstMatch(s);
-    if (m != null) return m.group(0)!.toUpperCase();
+    if (s.isEmpty) return s;
+    // 先匹配显式选择模式（"答案：B" / "选 C" / "选择 D" / "选项 B"），
+    // 防用户长篇解释（如 "because..."）被全文首字母误判成选 B。
+    final explicit = RegExp(
+      r'(?:答案|选项|选|选择)\s*[:：]?\s*([A-Da-d])',
+    ).firstMatch(s);
+    if (explicit != null) return explicit.group(1)!.toUpperCase();
+    // 无显式模式：仅当整串就是单个选项字母（容 "B." / "B)" / "B、" 等）时
+    // 才取首字母；其余按原文大写返回（判题时不会等于 A-D，算答错）。
+    final bare = RegExp(r'^[A-Da-d]\s*[.、)）:]?\s*$').firstMatch(s);
+    if (bare != null) return s[0].toUpperCase();
     return s.toUpperCase();
   }
 

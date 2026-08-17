@@ -32,7 +32,7 @@ class TreeLayoutView extends StatefulWidget {
 }
 
 class _TreeLayoutViewState extends State<TreeLayoutView> {
-  late TreeNode<Explorable> _rootNode;
+  TreeNode<Explorable>? _rootNode;
   String _lastItemsSig = '';
 
   @override
@@ -60,9 +60,13 @@ class _TreeLayoutViewState extends State<TreeLayoutView> {
   Future<void> _loadTree() async {
     String mainDir = context.read<SettingsProvider>().mainDir;
 
-    _rootNode = TreeNode.root(
+    final rootNode = TreeNode.root(
         data: TFolder(mainDir.split(path.separator).last, mainDir));
-    _rootNode.addAll(await getTree(mainDir));
+    rootNode.addAll(await getTree(mainDir));
+    if (!mounted) return;
+    setState(() {
+      _rootNode = rootNode;
+    });
   }
 
   Future<List<Node>> getTree(String dir) async {
@@ -106,9 +110,16 @@ class _TreeLayoutViewState extends State<TreeLayoutView> {
       context.read<SelectingProvider>().selectedItems.clear();
     }
 
+    final rootNode = _rootNode;
+    if (rootNode == null) {
+      return SafeArea(
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return SafeArea(
       child: TreeView.simpleTyped<Explorable, TreeNode<Explorable>>(
-        tree: _rootNode,
+        tree: rootNode,
         expansionBehavior: ExpansionBehavior.collapseOthersAndSnapToTop,
         expansionIndicatorBuilder: (context, node) {
           return ChevronIndicator.rightDown(

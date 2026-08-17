@@ -216,12 +216,13 @@ Uint8List encryptPayload(Map<String, dynamic> payload, String secret) {
   final cipher = CBCBlockCipher(AESEngine())
     ..init(true, ParametersWithIV(KeyParameter(key), iv));
 
-  // PKCS7 填充。
+  // PKCS7 填充：始终追加 1~16 字节，每个填充字节值 = 填充长度。
   final blockSize = 16;
-  final paddedLen = ((plaintext.length / blockSize).ceil()) * blockSize;
+  final padLen = blockSize - (plaintext.length % blockSize);
+  final paddedLen = plaintext.length + padLen;
   final padded = Uint8List(paddedLen)..setAll(0, plaintext);
   for (var i = plaintext.length; i < paddedLen; i++) {
-    padded[i] = (blockSize - plaintext.length % blockSize) & 0xff;
+    padded[i] = padLen;
   }
 
   final out = Uint8List(paddedLen);
@@ -251,16 +252,24 @@ Map<String, dynamic> decryptPayload(Uint8List data, String secret) {
   final cipher = CBCBlockCipher(AESEngine())
     ..init(false, ParametersWithIV(KeyParameter(key), iv));
 
+  if (ciphertext.isEmpty || ciphertext.length % 16 != 0) {
+    throw const FormatException('加密数据损坏');
+  }
   final out = Uint8List(ciphertext.length);
   var offset = 0;
-  while (offset + 16 <= ciphertext.length) {
+  while (offset < ciphertext.length) {
     offset += cipher.processBlock(ciphertext, offset, out, offset);
   }
 
-  // 去 PKCS7 填充。
-  var padLen = out.isNotEmpty ? out[out.length - 1] : 0;
+  // 严格校验并去除 PKCS7 填充。
+  final padLen = out.isNotEmpty ? out[out.length - 1] : 0;
   if (padLen < 1 || padLen > 16 || padLen > out.length) {
-    padLen = 0;
+    throw const FormatException('加密数据损坏：填充长度非法');
+  }
+  for (var i = out.length - padLen; i < out.length; i++) {
+    if (out[i] != padLen) {
+      throw const FormatException('加密数据损坏：填充校验失败');
+    }
   }
   final plaintext = utf8.decode(out.sublist(0, out.length - padLen));
   return jsonDecode(plaintext) as Map<String, dynamic>;

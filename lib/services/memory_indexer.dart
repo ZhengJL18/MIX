@@ -141,4 +141,29 @@ class MemoryIndexer {
     } catch (_) {}
     return count;
   }
+
+  /// 全量强制重建索引（真机验证用）：清掉历史边权膨胀/旧标签残留。
+  ///
+  /// 跳过 path 以 [kKnowledgeDocPathPrefix] 开头的知识点文档自身；对其余
+  /// 每个 doc 强制重建：删旧标签 + 删旧 tag 边 + 热词重建 + 去重互连
+  /// （_autoTag）+ 按 title+content 重建知识点边（_linkKnowledge）。
+  /// 返回处理文档数。
+  Future<int> forceReindexAll() async {
+    var count = 0;
+    try {
+      final result = db.db.select('SELECT * FROM memory_docs');
+      final cols = result.columnNames;
+      for (final row in result) {
+        final doc = {for (final c in cols) c: row[c]};
+        final path = doc['path'] as String? ?? '';
+        if (path.startsWith(kKnowledgeDocPathPrefix)) continue;
+        final docId = doc['id'] as int;
+        final content = doc['content'] as String? ?? '';
+        await _autoTag(docId, content);
+        await _linkKnowledge(docId, '${doc['title'] ?? ''} $content');
+        count++;
+      }
+    } catch (_) {}
+    return count;
+  }
 }

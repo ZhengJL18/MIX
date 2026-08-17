@@ -128,6 +128,45 @@ class ContextCompressor {
     return cut;
   }
 
+  /// 切点对齐到 assistant(tool_calls)→tool 结果配对的完整边界。
+  ///
+  /// 切点若落在配对中间（assistant 入摘要而 tool 结果留尾部，或反之），
+  /// 后续 agent.sanitizeToolPairing 会静默删除拆散的消息，丢失近期上下文。
+  /// 把切点前移到配对起点，保证整对落在同一侧。
+  int _alignCutToToolPair(
+    List<Map<String, dynamic>> messages,
+    int cut,
+    int headSize,
+  ) {
+    for (var i = cut - 1; i >= headSize; i--) {
+      final m = messages[i];
+      if (m['role'] != 'assistant' || m['tool_calls'] is! List) continue;
+      final calls = m['tool_calls'] as List;
+      final ids = <String>{};
+      for (final c in calls) {
+        if (c is Map<String, dynamic>) {
+          final id = c['id'];
+          if (id is String && id.isNotEmpty) ids.add(id);
+        }
+      }
+      if (ids.isEmpty) continue;
+      // 统计紧随该 assistant 连续消费的 tool 结果数（到批次结束 j）。
+      var consumed = 0;
+      var j = i + 1;
+      while (j < messages.length &&
+          messages[j]['role'] == 'tool' &&
+          consumed < ids.length) {
+        consumed++;
+        j++;
+      }
+      // 切点在该批次内部（tail 从批次中间开始）→ 前移到配对起点。
+      if (cut > i && cut <= j) {
+        return i;
+      }
+    }
+    return cut;
+  }
+
   /// 是否应压缩。
   bool shouldCompress(int? promptTokens) {
     final tokens = promptTokens ?? 0;
@@ -215,6 +254,9 @@ class ContextCompressor {
     if (cutIdx <= headSize) {
       cutIdx = headSize + 1;
     }
+    // 切点对齐 tool_calls 配对边界：防止 assistant(tool_calls) 与其 tool 结果
+    // 被拆到 summary 两侧，导致 sanitizeToolPairing 静默删除（丢近期上下文）。
+    cutIdx = _alignCutToToolPair(working, cutIdx, headSize);
     tailStart = cutIdx;
 
     // 3. 中间段（headSize..tailStart）总结。

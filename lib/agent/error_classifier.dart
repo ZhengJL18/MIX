@@ -81,9 +81,6 @@ const List<String> overloadedPatterns = [
 
 /// 从异常/字符串提取状态码。
 int? extractStatusCode(Object? error) {
-  if (error is LlmHttpError) {
-    return error.statusCode;
-  }
   if (error is LlmException) {
     return error.statusCode;
   }
@@ -98,14 +95,14 @@ int? extractStatusCode(Object? error) {
 String _errorText(Object? error) {
   final parts = <String>[
     error?.toString() ?? '',
-    if (error is LlmHttpError) error.body,
+    if (error is LlmException) error.body ?? '',
   ];
   return parts.join(' ').toLowerCase();
 }
 
 /// 分类 API 错误。
 ///
-/// [error] 通常是 LlmException/LlmHttpError。返回带恢复动作的分类。
+/// [error] 通常是 LlmException。返回带恢复动作的分类。
 ClassifiedError classifyApiError(Object error, {String? provider, String? model}) {
   final status = extractStatusCode(error);
   final text = _errorText(error);
@@ -122,13 +119,6 @@ ClassifiedError classifyApiError(Object error, {String? provider, String? model}
 
   // 网络错误（无状态码）→ 可重试。
   if (status == null) {
-    if (error is LlmNetworkError) {
-      return ClassifiedError(
-        reason: FailoverReason.network,
-        message: error.toString(),
-        retryable: true,
-      );
-    }
     return ClassifiedError(
       reason: FailoverReason.unknown,
       message: error.toString(),
@@ -216,21 +206,4 @@ ClassifiedError classifyApiError(Object error, {String? provider, String? model}
         retryable: false,
       );
   }
-}
-
-/// 带 HTTP 状态码的 LLM 错误。
-class LlmHttpError {
-  final int statusCode;
-  final String body;
-  LlmHttpError(this.statusCode, this.body);
-  @override
-  String toString() => 'HTTP $statusCode $body';
-}
-
-/// 网络错误。
-class LlmNetworkError {
-  final String message;
-  LlmNetworkError(this.message);
-  @override
-  String toString() => message;
 }

@@ -15,6 +15,7 @@
 /// - `goal_list`         持久目标（验证 Goal 系统）
 /// - `evidence <t> <id>` 证据流（验证置信度引擎）
 /// - `notes_sync`        手动触发笔记同步
+/// - `reindex`           全量强制重建记忆索引（清边权膨胀/旧标签残留）
 ///
 /// 安全：仅 127.0.0.1 回环 + adb forward（USB 授权才可达）；release 也启用
 /// （用户明确要求调试模式，本地回环无外部暴露）。
@@ -26,6 +27,7 @@ import 'dart:io';
 import 'chinese_segmenter.dart';
 import 'goal_store.dart';
 import 'memory_db.dart';
+import 'memory_indexer.dart';
 import 'memory_learning.dart';
 import 'memory_tagger.dart';
 import 'notes_sync.dart';
@@ -43,6 +45,7 @@ class DebugServer {
   final MemoryLearning? learning;
   final MemoryTagger? tagger;
   final NotesSyncService? notesSync;
+  final MemoryIndexer? indexer;
   final int port;
 
   ServerSocket? _server;
@@ -55,6 +58,7 @@ class DebugServer {
     this.learning,
     this.tagger,
     this.notesSync,
+    this.indexer,
     this.port = kDebugServerPort,
   });
 
@@ -138,6 +142,8 @@ class DebugServer {
           return _cmdEvidence(args);
         case 'notes_sync':
           return _cmdNotesSync();
+        case 'reindex':
+          return _cmdReindex();
         case 'read_doc':
           return _cmdReadDoc(args);
         default:
@@ -318,6 +324,14 @@ class DebugServer {
     if (ns == null) return jsonEncode({'error': 'notes_sync unavailable'});
     final updated = await ns.syncNotes();
     return jsonEncode({'updated': updated});
+  }
+
+  /// reindex：全量强制重建记忆索引（真机验证用，清历史边权膨胀/旧标签残留）。
+  Future<String> _cmdReindex() async {
+    final idx = indexer;
+    if (idx == null) return jsonEncode({'error': 'memory_indexer unavailable'});
+    final n = await idx.forceReindexAll();
+    return jsonEncode({'reindexed': n});
   }
 
   /// read_doc：本地文档→Markdown 提取（PDF/DOCX/PPTX/XLSX 验证用）。

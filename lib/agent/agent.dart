@@ -91,6 +91,9 @@ class MIXAgent {
   /// 流式文本回调（UI 打字）。
   final void Function(String delta)? onDelta;
 
+  /// 重试前通知 UI 回滚本轮已流式输出的增量（防止重试导致文本重复追加）。
+  final void Function()? onStreamRollback;
+
   /// reasoning_content 回调（DeepSeek 类先思考后输出，流式透传）。
   final void Function(String delta)? onReasoning;
 
@@ -119,6 +122,7 @@ class MIXAgent {
     this.toolDefinitionsProvider,
     this.maxIterations = 500,
     this.onDelta,
+    this.onStreamRollback,
     this.onReasoning,
     this.onToolEvent,
     this.memoryManager,
@@ -469,12 +473,13 @@ class MIXAgent {
     while (apiCallCount < maxIterations &&
         iterationBudget.remaining > 0 &&
         !_cancelled) {
-      apiCallCount++;
-
       // 消耗迭代预算。
       if (!iterationBudget.consume()) {
         break;
       }
+
+      // consume 成功后再自增，预算耗尽退出时计数不虚高。
+      apiCallCount++;
 
       // ── 上下文压缩：超阈值时用 LLM 摘要中间段 ──
       final cc = contextCompressor;
@@ -504,12 +509,17 @@ class MIXAgent {
       const maxRetries = 3;
       var attempt = 0;
       var lastError = '';
+      // 本 attempt 是否已通过 onDelta 流出增量（重试需先回滚 UI 已追加内容）。
+      var streamedInAttempt = false;
       while (true) {
         try {
           final result = await llm.chatStream(
             messages: messages,
             tools: tools,
-            onDelta: onDelta,
+            onDelta: (delta) {
+              streamedInAttempt = true;
+              onDelta?.call(delta);
+            },
             onReasoning: onReasoning,
             isCancelled: () => _cancelled,
           );
@@ -541,16 +551,47 @@ class MIXAgent {
               error: lastError,
             );
           }
-          // 退避后重试。
+          // 重试前回滚本轮已流式输出的增量，防止 UI 重复追加。
           attempt++;
+          if (streamedInAttempt) {
+            streamedInAttempt = false;
+            onStreamRollback?.call();
+          }
+          // 413 上下文过大：先压缩再重试，否则原样超长 payload 重试必败。
+          if (classified.shouldCompress) {
+            final comp = contextCompressor;
+            if (comp != null) {
+              final compressed = await comp.compress(messages);
+              if (compressed.length != messages.length) {
+                messages
+                  ..clear()
+                  ..addAll(compressed);
+              }
+            }
+          }
+          // 分片退避：每 200ms 检查一次取消标志，取消可提前退出。
           final delay = jitteredBackoff(
             attempt,
             baseDelay: 2.0,
             maxDelay: 15.0,
           );
-          await Future<void>.delayed(
-            Duration(milliseconds: (delay * 1000).toInt()),
-          );
+          final delayMs = (delay * 1000).toInt();
+          var slept = 0;
+          while (slept < delayMs) {
+            if (_cancelled) break;
+            final step = delayMs - slept < 200 ? delayMs - slept : 200;
+            await Future<void>.delayed(Duration(milliseconds: step));
+            slept += step;
+          }
+          if (_cancelled) {
+            return ConversationResult(
+              finalResponse: null,
+              messages: messages,
+              apiCalls: apiCallCount,
+              completed: false,
+              error: 'cancelled',
+            );
+          }
         }
       }
 

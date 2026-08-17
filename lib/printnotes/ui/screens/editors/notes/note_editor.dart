@@ -94,6 +94,13 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
 
     _fileCheckTimer = Timer.periodic(
         fileCheckInterval, (_) => _checkForExternalChanges(context));
+
+    if (widget.jumpToHeader != null) {
+      _scrollToHeader = Timer(const Duration(milliseconds: 800), () {
+        _tocController.jumpToText(widget.jumpToHeader!);
+        setState(() {});
+      });
+    }
   }
 
   Future<void> _loadConfig() async {
@@ -110,20 +117,21 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
       final content = await file.readAsString();
       final lastMod = await file.lastModified();
 
+      if (!mounted) return;
       setState(() {
         _notesController.text = content;
         _lastModifiedTime = lastMod;
         _isLoading = false;
         _hasUnsavedChanges = false;
 
-        if (mounted &&
-            !widget.fileUri
-                .toFilePath()
-                .contains(context.read<SettingsProvider>().mainDir)) {
+        if (!widget.fileUri
+            .toFilePath()
+            .contains(context.read<SettingsProvider>().mainDir)) {
           _readOnlyMode = true;
         }
       });
     } catch (e) {
+      if (!mounted) return;
       debugPrint('Error loading file content: $e');
       setState(() {
         _isError = true;
@@ -217,13 +225,6 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     bool useFM = context.read<SettingsProvider>().useFrontmatter;
     String? fmBody;
     String? fmTitle;
-
-    if (widget.jumpToHeader != null) {
-      _scrollToHeader = Timer(Duration(microseconds: 800), () {
-        _tocController.jumpToText(widget.jumpToHeader!);
-        setState(() {});
-      });
-    }
 
     // frontmatter logic
     if (useFM) {
