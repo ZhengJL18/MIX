@@ -17,12 +17,12 @@ import 'package:mix/printnotes/providers/customization_provider.dart'
     as printnotes;
 import 'package:mix/printnotes/providers/editor_config_provider.dart'
     as printnotes;
-import 'package:mix/printnotes/providers/navigation_provider.dart';
-import 'package:mix/printnotes/providers/selecting_provider.dart';
-import 'package:mix/printnotes/providers/settings_provider.dart';
-import 'package:mix/printnotes/providers/theme_provider.dart';
-import 'package:mix/printnotes/ui/screens/home/main_screen.dart';
-import 'package:mix/printnotes/ui/screens/editors/notes/note_editor.dart';
+import 'package:mix/printnotes/providers/navigation_provider.dart' as printnotes;
+import 'package:mix/printnotes/providers/selecting_provider.dart' as printnotes;
+import 'package:mix/printnotes/providers/settings_provider.dart' as printnotes;
+import 'package:mix/printnotes/providers/theme_provider.dart' as printnotes;
+import 'package:mix/printnotes/ui/screens/home/main_screen.dart' as printnotes;
+import 'package:mix/printnotes/ui/screens/editors/notes/note_editor.dart' as printnotes;
 
 import 'package:mix/agent/agent.dart';
 import 'package:mix/agent/company.dart';
