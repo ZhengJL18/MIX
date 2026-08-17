@@ -257,4 +257,17 @@ class Services {
   Future<void> Function(CronJob job)? _cronFireHandler;
   Future<void> Function(CronJob job)? get cronFireHandler => _cronFireHandler;
   set cronFireHandler(Future<void> Function(CronJob job)? v) => _cronFireHandler = v;
+
+  /// 对话历史页「继续聊天」回调：切换 ChatScreen 到指定会话。
+  /// 由 ChatScreen 注册，HistoryScreen 调用。
+  Future<void> Function(String sessionId)? _resumeSessionHandler;
+  Future<void> Function(String sessionId)? get resumeSessionHandler =>
+      _resumeSessionHandler;
+  set resumeSessionHandler(Future<void> Function(String sessionId)? v) =>
+      _resumeSessionHandler = v;
+
+  /// 「检查更新」回调：由 ChatScreen 注册，设置页调用。
+  Future<void> Function()? _checkUpdateHandler;
+  Future<void> Function()? get checkUpdateHandler => _checkUpdateHandler;
+  set checkUpdateHandler(Future<void> Function()? v) => _checkUpdateHandler = v;
 }

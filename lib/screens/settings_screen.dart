@@ -17,7 +17,7 @@ import 'skills_screen.dart';
 import 'theme_screen.dart';
 import 'vault_screen.dart';
 import 'vision_settings_screen.dart';
-import '../main.dart' show checkUpdateHandler;
+import '../services/services.dart';
 import '../printnotes/constants/constants.dart' as pn;
 import '../printnotes/ui/screens/settings/settings_screen.dart' as printnotes;
 import '../theme/theme_ext.dart';
@@ -621,7 +621,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                 title: const Text('检查更新'),
                 subtitle: const Text('检查 MIX 是否有新版本'),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => checkUpdateHandler?.call(),
+                onTap: () => Services.instance.checkUpdateHandler?.call(),
               ),
               const Divider(height: 1),
               ListTile(

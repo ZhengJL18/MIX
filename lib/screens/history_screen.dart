@@ -6,7 +6,6 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../main.dart' show resumeSessionHandler;
 import '../services/services.dart';
 import '../theme/theme_ext.dart';
 
@@ -99,7 +98,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   /// 继续聊天：切回主对话页并加载该会话历史。
   Future<void> _continueChat(String sessionId) async {
-    final handler = resumeSessionHandler;
+    final handler = Services.instance.resumeSessionHandler;
     if (handler == null) return;
     await handler(sessionId);
     if (!mounted) return;
