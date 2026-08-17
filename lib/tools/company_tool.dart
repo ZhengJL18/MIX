@@ -5,16 +5,13 @@
 library;
 
 import '../agent/company.dart';
+import '../services/services.dart';
 import 'delegate_tool.dart' show currentAgentDepth;
 import 'registry.dart';
 
-/// ChatScreen 注册的部门执行器：给定部门+任务，部门内角色分工执行。
-Future<String> Function(String department, String task, int depth)?
-    departmentHandler;
-
 /// delegate_to_department 工具 handler。
 Future<String> _handleDepartment(Map<String, dynamic> args, [Map<String, dynamic>? kwargs]) async {
-  final handler = departmentHandler;
+  final handler = Services.instance.departmentHandler;
   if (handler == null) {
     return toolError('delegate_to_department: 部门执行器未注册');
   }

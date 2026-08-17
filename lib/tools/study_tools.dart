@@ -4,43 +4,13 @@
 /// 注入方（ChatScreen/bridge，拥有 LLM client + StudyEngine + 画像读取）。
 library;
 
+import '../services/services.dart';
 import 'registry.dart';
-
-/// 出题执行器（多阶段管线）：给定科目/知识点，返回题目 JSON。
-/// [kpId] 知识点 id；[targetDifficulty] 目标难度档（easy/medium/hard，可选）。
-Future<String> Function(
-  int kpId, {
-  String? targetDifficulty,
-})? studyQuestionHandler;
-
-/// 知识点列表执行器：返回可用科目/知识点（带掌握度）。
-Future<String> Function()? studyListHandler;
-
-/// 画像更新执行器：把本次作答观察写进学生画像（0_profile.md）。
-Future<String> Function(String note)? studyProfileUpdateHandler;
-
-/// 作答记录执行器：把判题结果写入 practice_records（掌握度来源）。
-Future<String> Function({
-  required int questionId,
-  required bool correct,
-  String? mainCause,
-  String? minorCause,
-})? studyRecordHandler;
-
-/// 批量题卡执行器：把题目 JSON 交给 UI 渲染成可滑动题卡，返回用户逐题作答。
-/// [grade] 为 true 时 UI 机械判分，返回带对错的结果；[updateProfile] 为 true
-/// 时作答观察写入学生画像（由 UI 侧在拿到结果后触发）。
-Future<String> Function(
-  List<Map<String, dynamic>> questions, {
-  required bool grade,
-  bool updateProfile,
-  String? topic,
-})? studyQuizHandler;
 
 /// study_record 工具 handler：落库本次作答（对/错）。
 Future<String> _handleStudyRecord(Map<String, dynamic> args,
     [Map<String, dynamic>? kwargs]) async {
-  final handler = studyRecordHandler;
+  final handler = Services.instance.studyRecordHandler;
   if (handler == null) {
     return toolError('study_record: 学习引擎未初始化');
   }
@@ -64,7 +34,7 @@ Future<String> _handleStudyRecord(Map<String, dynamic> args,
 /// study_profile_update 工具 handler。
 Future<String> _handleStudyProfileUpdate(Map<String, dynamic> args,
     [Map<String, dynamic>? kwargs]) async {
-  final handler = studyProfileUpdateHandler;
+  final handler = Services.instance.studyProfileUpdateHandler;
   if (handler == null) {
     return toolError('study_profile_update: 学习引擎未初始化');
   }
@@ -82,7 +52,7 @@ Future<String> _handleStudyProfileUpdate(Map<String, dynamic> args,
 /// study_list 工具 handler。
 Future<String> _handleStudyList(Map<String, dynamic> args,
     [Map<String, dynamic>? kwargs]) async {
-  final handler = studyListHandler;
+  final handler = Services.instance.studyListHandler;
   if (handler == null) {
     return toolError('study_list: 学习引擎未初始化');
   }
@@ -96,7 +66,7 @@ Future<String> _handleStudyList(Map<String, dynamic> args,
 /// study_question 工具 handler。
 Future<String> _handleStudyQuestion(Map<String, dynamic> args,
     [Map<String, dynamic>? kwargs]) async {
-  final handler = studyQuestionHandler;
+  final handler = Services.instance.studyQuestionHandler;
   if (handler == null) {
     return toolError('study_question: 学习引擎未初始化');
   }
@@ -118,7 +88,7 @@ Future<String> _handleStudyQuestion(Map<String, dynamic> args,
 /// study_quiz 工具 handler：把批量题目交给 UI 渲染成滑动题卡。
 Future<String> _handleStudyQuiz(Map<String, dynamic> args,
     [Map<String, dynamic>? kwargs]) async {
-  final handler = studyQuizHandler;
+  final handler = Services.instance.studyQuizHandler;
   if (handler == null) {
     return toolError('study_quiz: 界面未提供题卡回调');
   }

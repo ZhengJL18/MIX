@@ -12,6 +12,7 @@ library;
 import 'dart:convert';
 
 import '../db/session_db.dart';
+import '../services/services.dart';
 import 'registry.dart';
 
 /// session_search 工具。
@@ -213,9 +214,6 @@ const Map<String, dynamic> sessionSearchSchema = {
   },
 };
 
-/// 全局会话库引用（main.dart 初始化）。
-SessionDB? sessionDb;
-
 /// 注册 session_search 工具。
 void registerSessionSearchTool() {
   registry.register(
@@ -228,11 +226,11 @@ void registerSessionSearchTool() {
         sessionId: args['session_id'] as String?,
         aroundMessageId: args['around_message_id'] as int?,
         window: args['window'] as int?,
-        db: sessionDb,
+        db: Services.instance.sessionDb,
         limit: args['limit'] as int? ?? 20,
       );
     },
-    checkFn: () => sessionDb != null,
+    checkFn: () => Services.instance.sessionDb != null,
     emoji: '🔍',
   );
 }

@@ -9,6 +9,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/services.dart';
 import 'registry.dart';
 
 const String _jobsKey = 'cron_jobs';
@@ -47,7 +48,6 @@ class CronJob {
 }
 
 /// 触发回调：UI 注册，把 cron 任务交给 agent 执行并展示结果。
-Future<void> Function(CronJob job)? cronFireHandler;
 
 /// 定时器集合（id → timer）。
 final Map<String, Timer> _timers = {};
@@ -137,7 +137,7 @@ void _scheduleJob(CronJob job) {
     // 已触发：从活动集合移除（此后 _deleteJob 的 cancel 只作用于真正的 pending timer）。
     _timers.remove(job.id);
     try {
-      final fire = cronFireHandler;
+      final fire = Services.instance.cronFireHandler;
       if (fire != null) {
         await fire(job);
       }

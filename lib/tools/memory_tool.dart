@@ -18,6 +18,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../services/services.dart';
 import 'registry.dart';
 
 /// system prompt 记忆块的稳定头前缀。
@@ -551,8 +552,8 @@ const Map<String, dynamic> memorySchema = {
 /// 注册 memory 工具。
 void registerMemoryTool({String? baseDir, MemoryStore? existingStore}) {
   // 全局单例 store（agent 复用）。
-  memoryStore = existingStore ??
-      MemoryStore(baseDir: baseDir ?? (memoryStore?.baseDir ?? '.'));
+  Services.instance.memoryStore = existingStore ??
+      MemoryStore(baseDir: baseDir ?? (Services.instance.memoryStore?.baseDir ?? '.'));
   registry.register(
     name: 'memory',
     toolset: 'memory',
@@ -566,10 +567,10 @@ void registerMemoryTool({String? baseDir, MemoryStore? existingStore}) {
         operations: (args['operations'] as List?)
             ?.whereType<Map<String, dynamic>>()
             .toList(),
-        store: memoryStore,
+        store: Services.instance.memoryStore,
       );
       // P1：写入成功后异步索引（自动标签/知识点边），失败不影响原结果。
-      final hook = memoryIndexHook;
+      final hook = Services.instance.memoryIndexHook;
       if (hook != null) {
         try {
           await hook(args, result);
@@ -581,11 +582,3 @@ void registerMemoryTool({String? baseDir, MemoryStore? existingStore}) {
     emoji: '🧠',
   );
 }
-
-/// 全局记忆 store（AIAgent / 主循环共享）。
-MemoryStore? memoryStore;
-
-/// P1 记忆索引钩子（v4 §5 确定性图建构）：memory 工具写入成功后异步触发
-/// 自动标签/知识点边索引。由 main.dart 注入（关联 MemoryDB + StudyEngine）。
-/// 可空、异常吞掉——不改变 Hermes memory 工具语义，纯附加行为。
-Future<void> Function(Map<String, dynamic> args, String result)? memoryIndexHook;

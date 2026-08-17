@@ -5,15 +5,12 @@
 /// 通过全局 [moaHandler] 由 ChatScreen 提供执行器。
 library;
 
+import '../services/services.dart';
 import 'registry.dart';
-
-/// ChatScreen 注册的多代理讨论执行器。
-/// [topic] 讨论主题；[rounds] 讨论轮数。返回综合后的最终结论。
-Future<String> Function(String topic, int rounds)? moaHandler;
 
 /// moa_discuss 工具 handler。
 Future<String> _handleMoa(Map<String, dynamic> args, [Map<String, dynamic>? kwargs]) async {
-  final handler = moaHandler;
+  final handler = Services.instance.moaHandler;
   if (handler == null) {
     return toolError('moa_discuss: 讨论执行器未注册');
   }

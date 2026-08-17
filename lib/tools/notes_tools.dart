@@ -11,12 +11,10 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../notes/notes_paths.dart';
+import '../services/services.dart';
 import 'registry.dart';
 
 String? _notesRootCached;
-
-/// 最近一次 notes_write 成功写入的笔记绝对路径（聊天侧深链「打开笔记」用）。
-String? lastWrittenNotePath;
 
 /// 工具最近一次成功写入某文件后的 (mtime, length) 快照，键为解析后的绝对路径。
 /// 写入前用它比对文件是否在工具上次写入后被其他写入方（如 UI 自动保存）改过；
@@ -214,7 +212,7 @@ Future<String> _handleNotesWrite(Map<String, dynamic> args,
       await f.writeAsString(content);
     }
     _lastWriteState[path] = (await f.lastModified(), await f.length());
-    lastWrittenNotePath = path;
+    Services.instance.lastWrittenNotePath = path;
     return toolResult({
       'path': p.relative(path, from: await _notesRoot()),
       'mode': mode,

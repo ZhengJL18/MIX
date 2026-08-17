@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mix/services/services.dart';
 import 'package:mix/tools/cron_tools.dart';
 import 'package:mix/tools/model_tools.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -19,12 +20,12 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     registerCronTools(); // 幂等：同 toolset 重复注册允许覆盖。
-    cronFireHandler = null;
+    Services.instance.cronFireHandler = null;
   });
 
   tearDown(() {
     stopCronScheduler();
-    cronFireHandler = null;
+    Services.instance.cronFireHandler = null;
   });
 
   Future<List<dynamic>> storedJobs() async {
@@ -49,7 +50,7 @@ void main() {
       jobJson('cron_resurrect', '1s'),
     ]));
     // 模拟 agent 在 fire 期间执行任务后调用 cron_delete。
-    cronFireHandler = (job) async {
+    Services.instance.cronFireHandler = (job) async {
       await handleFunctionCall('cron_delete', {'id': job.id});
     };
 
@@ -72,7 +73,7 @@ void main() {
       jobJson('cron_oneshot', iso),
     ]));
     var fired = false;
-    cronFireHandler = (job) async {
+    Services.instance.cronFireHandler = (job) async {
       fired = true;
     };
 
@@ -93,7 +94,7 @@ void main() {
       jobJson('cron_recurring', '1s'),
     ]));
     var fired = false;
-    cronFireHandler = (job) async {
+    Services.instance.cronFireHandler = (job) async {
       fired = true;
     };
 

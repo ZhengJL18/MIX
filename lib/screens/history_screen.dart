@@ -7,7 +7,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../main.dart' show resumeSessionHandler;
-import '../tools/session_search_tool.dart' show sessionDb;
+import '../services/services.dart';
 import '../theme/theme_ext.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -39,7 +39,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   /// 搜索会话内容。
   Future<void> _search(String query) async {
-    final sdb = sessionDb;
+    final sdb = Services.instance.sessionDb;
     if (sdb == null) return;
     final q = query.trim();
     if (q.isEmpty) {
@@ -69,7 +69,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<void> _load() async {
-    final sdb = sessionDb;
+    final sdb = Services.instance.sessionDb;
     if (sdb == null) {
       setState(() => _loading = false);
       return;
@@ -107,7 +107,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<void> _viewSession(String sessionId) async {
-    final sdb = sessionDb;
+    final sdb = Services.instance.sessionDb;
     if (sdb == null) return;
     if (!mounted) return;
     Navigator.of(context).push(
@@ -121,7 +121,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<void> _deleteSession(String sessionId) async {
-    final sdb = sessionDb;
+    final sdb = Services.instance.sessionDb;
     if (sdb == null) return;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -344,7 +344,7 @@ class _SessionDetailScreenState extends State<_SessionDetailScreen> {
   }
 
   Future<void> _load() async {
-    final sdb = sessionDb;
+    final sdb = Services.instance.sessionDb;
     if (sdb != null) {
       final msgs = await sdb.getMessages(widget.sessionId);
       if (mounted) {

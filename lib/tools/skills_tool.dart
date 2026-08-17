@@ -12,12 +12,10 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../skills/skill_discovery.dart';
+import '../services/services.dart';
 import '../skills/skill_parser.dart';
 import 'fuzzy_match.dart';
 import 'registry.dart';
-
-/// 全局 skill 发现器（main.dart 初始化）。
-SkillDiscovery? skillDiscovery;
 
 // =============================================================================
 // System prompt 注入（渐进式披露：只注入 name+description 索引）
@@ -25,7 +23,7 @@ SkillDiscovery? skillDiscovery;
 
 /// 构建 `## Skills (mandatory)` 块，按 category 分组。
 String buildSkillsSystemPrompt() {
-  final discovery = skillDiscovery;
+  final discovery = Services.instance.skillDiscovery;
   if (discovery == null) {
     return '';
   }
@@ -59,7 +57,7 @@ String buildSkillsSystemPrompt() {
 
 /// skills_list：列出 skills（可按 category 过滤）。
 String skillsListTool({String? category}) {
-  final discovery = skillDiscovery;
+  final discovery = Services.instance.skillDiscovery;
   if (discovery == null) {
     return toolError('Skills not available');
   }
@@ -78,7 +76,7 @@ String skillsListTool({String? category}) {
 
 /// skill_view：查看 skill 内容。
 String skillViewTool({String? name, String? filePath}) {
-  final discovery = skillDiscovery;
+  final discovery = Services.instance.skillDiscovery;
   if (discovery == null) {
     return toolError('Skills not available');
   }
@@ -126,7 +124,7 @@ String skillManageTool({
   String? filePath,
   String? fileContent,
 }) {
-  final discovery = skillDiscovery;
+  final discovery = Services.instance.skillDiscovery;
   if (discovery == null) {
     return toolError('Skills not available');
   }
@@ -377,7 +375,7 @@ const Map<String, dynamic> skillManageSchema = {
 
 /// 注册三个 skill 工具。
 void registerSkillTools({required String skillsRoot}) {
-  skillDiscovery = SkillDiscovery(skillsRoot: skillsRoot);
+  Services.instance.skillDiscovery = SkillDiscovery(skillsRoot: skillsRoot);
   registry.register(
     name: 'skills_list',
     toolset: 'skills',
@@ -385,7 +383,7 @@ void registerSkillTools({required String skillsRoot}) {
     handler: (args, [kwargs]) {
       return skillsListTool(category: args['category'] as String?);
     },
-    checkFn: () => skillDiscovery != null,
+    checkFn: () => Services.instance.skillDiscovery != null,
     emoji: '📚',
   );
   registry.register(
@@ -398,7 +396,7 @@ void registerSkillTools({required String skillsRoot}) {
         filePath: args['file_path'] as String?,
       );
     },
-    checkFn: () => skillDiscovery != null,
+    checkFn: () => Services.instance.skillDiscovery != null,
     emoji: '📖',
   );
   registry.register(
@@ -418,7 +416,7 @@ void registerSkillTools({required String skillsRoot}) {
         fileContent: args['file_content'] as String?,
       );
     },
-    checkFn: () => skillDiscovery != null,
+    checkFn: () => Services.instance.skillDiscovery != null,
     emoji: '🛠️',
   );
 }

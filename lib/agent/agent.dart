@@ -22,22 +22,13 @@ import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../db/session_db.dart';
 import '../llm/openai_llm.dart';import '../tools/delegate_tool.dart' show currentAgentDepth;
+import '../services/services.dart';
 import '../tools/memory_manager.dart';
 import '../tools/model_tools.dart';
 import 'context_compressor.dart';
 import 'error_classifier.dart';
 import 'iteration_budget.dart';
 import 'retry_utils.dart';
-
-/// P3 技能目录注入 provider（DSH 启示 4，v4 §7.4）：返回技能目录摘要块
-/// （名 + 一句话描述），由 main.dart 注入（持有 SkillDiscovery）。
-/// 可空——未注入时不注入技能目录，不影响主循环。
-String Function()? skillCatalogProvider;
-
-/// P3 Goal 自动续跑 provider（v4 §7.1）：返回活跃目标块（objective +
-/// 证据驱动进度 + 轮次），由 main.dart 注入（缓存异步刷新）。
-/// agent 每轮看到长期目标 → 自动朝目标推进（跨会话持续）。
-String Function()? goalCatalogProvider;
 
 /// agent 主循环的结果。
 class ConversationResult {
@@ -343,14 +334,14 @@ class MIXAgent {
     // P3 技能目录注入（v4 §7.4）：技能名+一句话并入 volatile 层，
     // 避免 agent 想不起可用技能（渐进式披露的目录版）。
     try {
-      final skillBlock = skillCatalogProvider?.call();
+      final skillBlock = Services.instance.skillCatalogProvider?.call();
       if (skillBlock != null && skillBlock.isNotEmpty) {
         effectiveSystem = '$effectiveSystem\n\n$skillBlock';
       }
     } catch (_) {}
     // P3 Goal 自动续跑（v4 §7.1）：活跃目标并入系统提示，跨会话持续推进。
     try {
-      final goalBlock = goalCatalogProvider?.call();
+      final goalBlock = Services.instance.goalCatalogProvider?.call();
       if (goalBlock != null && goalBlock.isNotEmpty) {
         effectiveSystem = '$effectiveSystem\n\n$goalBlock';
       }

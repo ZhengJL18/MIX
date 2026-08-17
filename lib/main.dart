@@ -527,10 +527,10 @@ class _ChatScreenState extends State<ChatScreen> {
     registerSessionSearchTool();
     registerGitTools();
     registerClarifyTool();
-    clarifyHandler = _showClarifyDialog;
+    Services.instance.clarifyHandler = _showClarifyDialog;
     // 爬虫登录功能已移除（2026-08-13 用户决定）。
     registerDelegateTool();
-    delegateHandler = (task, toolsets, depth) async {
+    Services.instance.delegateHandler = (task, toolsets, depth) async {
       final svc = await _ensureMultiAgent();
       if (svc == null) return '子任务未执行：AI 未配置';
       return svc.runSubAgent(
@@ -541,7 +541,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     };
     registerMoaTool();
-    moaHandler = (topic, rounds) async {
+    Services.instance.moaHandler = (topic, rounds) async {
       final svc = await _ensureMultiAgent();
       if (svc == null) return '讨论未执行：AI 未配置';
       return svc.runDiscussion(
@@ -551,7 +551,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     };
     registerCompanyTool();
-    departmentHandler = (department, task, depth) async {
+    Services.instance.departmentHandler = (department, task, depth) async {
       final svc = await _ensureMultiAgent();
       if (svc == null) return '部门任务未执行：AI 未配置';
       return svc.runDepartment(
@@ -562,7 +562,7 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     };
     registerCronTools();
-    cronFireHandler = _fireCronJob;
+    Services.instance.cronFireHandler = _fireCronJob;
     // startCronScheduler 移到 _initCwd 完成后（修复启动竞态：
     // 定时任务触发时 memoryStore/sessionDb 等服务可能未初始化）。
     registerVisionTool();
@@ -570,11 +570,11 @@ class _ChatScreenState extends State<ChatScreen> {
     registerNotesTools();
     registerReadDocTool();
     registerConvertTools();
-    studyListHandler = _studyList;
-    studyQuestionHandler = _studyQuestion;
-    studyProfileUpdateHandler = _studyProfileUpdate;
-    studyRecordHandler = _studyRecord;
-    studyQuizHandler = _showQuiz;
+    Services.instance.studyListHandler = _studyList;
+    Services.instance.studyQuestionHandler = _studyQuestion;
+    Services.instance.studyProfileUpdateHandler = _studyProfileUpdate;
+    Services.instance.studyRecordHandler = _studyRecord;
+    Services.instance.studyQuizHandler = _showQuiz;
     // 对话历史页「继续聊天」→ 切换到指定会话并加载历史。
     resumeSessionHandler = _resumeSession;
     // 设置页「检查更新」→ 复用聊天页的检查逻辑。
@@ -967,7 +967,7 @@ class _ChatScreenState extends State<ChatScreen> {
               _messages.add(_ChatMessage.tool(name, status));
             }
             // notes_write 完成后追加「打开笔记」卡片，深链到笔记编辑器。
-            if (name == 'notes_write' && lastWrittenNotePath != null) {
+            if (name == 'notes_write' && Services.instance.lastWrittenNotePath != null) {
               _messages.add(_ChatMessage.tool('notes_open', 'done'));
             }
           }
@@ -1244,9 +1244,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 await MIXConfig.loadEffort('refine')))),
         trajectory: traj,
         journal: journal,
-        memory: memoryStore,
+        memory: Services.instance.memoryStore,
         promptNotes: notes,
-        skills: skillDiscovery,
+        skills: Services.instance.skillDiscovery,
       );
       _refine = refine;
       Services.instance.refine = _refine;
@@ -1583,7 +1583,6 @@ class _ChatScreenState extends State<ChatScreen> {
     // 记忆存储（冻结快照）。
     try {
       registerMemoryTool(baseDir: dir);
-      Services.instance.memoryStore = memoryStore;
       // P0 记忆检索（v4 设计稿）：分词器 + 记忆库 + 检索工具。
       await initChineseSegmenter(dir);
       _memoryDb = MemoryDB(dbPath: '$dir/memory.db');
@@ -1594,18 +1593,18 @@ class _ChatScreenState extends State<ChatScreen> {
       registerMemorySearchTools(db: _memoryDb);
       registerMemoryVerifyTool(db: _memoryDb);
       // P3 异步委派（DSH 启示2）：async_delegations 表在记忆库。
-      delegateDb = _memoryDb;
+      Services.instance.delegateDb = _memoryDb;
       // P1 热词提取器（自动标签管线，idf 表懒加载）。
       _memoryTagger = MemoryTagger();
       Services.instance.memoryTagger = _memoryTagger;
       await _memoryTagger!.loadIdf(dir);
-      _memory = MemoryManager(store: memoryStore!, memoryDb: _memoryDb);
+      _memory = MemoryManager(store: Services.instance.memoryStore!, memoryDb: _memoryDb);
       Services.instance.memoryManager = _memory;
       // P3 Goal 系统（DSH 启示 1）：持久目标存储 + 工具 + 自动续跑注入。
       _goalStore = GoalStore(_memoryDb!);
       Services.instance.goalStore = _goalStore;
       registerGoalTool(store: _goalStore);
-      goalCatalogProvider = () => _activeGoalsBlock;
+      Services.instance.goalCatalogProvider = () => _activeGoalsBlock;
       await _refreshActiveGoals();
     } catch (_) {}
     // 自定义部门（公司模式）。
@@ -1616,7 +1615,6 @@ class _ChatScreenState extends State<ChatScreen> {
     try {
       _sessionDb = SessionDB(dbPath: '$dir/state.db');
       await _sessionDb!.init();
-      sessionDb = _sessionDb;
       Services.instance.sessionDb = _sessionDb;
       // 恢复到上次活动的会话（无则 'main'）。createSession 对已存在会话
       // 保留原 started_at，不会把旧会话刷新成"刚刚"顶置历史页。
@@ -1628,11 +1626,10 @@ class _ChatScreenState extends State<ChatScreen> {
       final skillsRoot = '$dir/skills';
       Directory(skillsRoot).createSync(recursive: true);
       registerSkillTools(skillsRoot: skillsRoot);
-      Services.instance.skillDiscovery = skillDiscovery;
       // P3 技能目录注入（DSH 启示 4）：技能名+一句话并入 agent 系统提示
       // volatile 层，避免想不起可用技能。
-      skillCatalogProvider = () {
-        final d = skillDiscovery;
+      Services.instance.skillCatalogProvider = () {
+        final d = Services.instance.skillDiscovery;
         if (d == null) return '';
         try {
           final skills = d.findAllSkills();
@@ -1682,7 +1679,7 @@ class _ChatScreenState extends State<ChatScreen> {
         );
         Services.instance.memoryIndexer = _memoryIndexer;
         await _memoryIndexer!.syncKnowledgePoints();
-        memoryIndexHook = (args, result) async {
+        Services.instance.memoryIndexHook = (args, result) async {
           final indexer = _memoryIndexer;
           if (indexer == null) return;
           try {
@@ -2990,7 +2987,7 @@ class _ChatScreenState extends State<ChatScreen> {
         }
         // agent 写入笔记后的「打开笔记」深链卡。
         if (m.toolName == 'notes_open') {
-          final notePath = lastWrittenNotePath;
+          final notePath = Services.instance.lastWrittenNotePath;
           return Container(
             margin: const EdgeInsets.only(bottom: 8),
             decoration: BoxDecoration(

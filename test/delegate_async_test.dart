@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mix/services/memory_db.dart';
+import 'package:mix/services/services.dart';
 import 'package:mix/tools/delegate_tool.dart';
 import 'package:mix/tools/registry.dart';
 
@@ -17,12 +18,12 @@ void main() {
     tmp = Directory.systemTemp.createTempSync('mix_delegate_test_');
     db = MemoryDB(dbPath: '${tmp.path}/memory.db');
     await db.init();
-    delegateDb = db;
+    Services.instance.delegateDb = db;
     registerDelegateTool();
   });
 
   tearDown(() async {
-    delegateHandler = null;
+    Services.instance.delegateHandler = null;
     await db.close();
     try {
       tmp.deleteSync(recursive: true);
@@ -34,7 +35,7 @@ void main() {
 
   group('delegate_task_async', () {
     test('handler 未注册 → 报错', () async {
-      delegateHandler = null;
+      Services.instance.delegateHandler = null;
       final res = decode(await registry.dispatch('delegate_task_async', {
         'task': 'x',
       }));
@@ -42,7 +43,7 @@ void main() {
     });
 
     test('派发后立即返回 delegation_id（running）', () async {
-      delegateHandler = (task, toolsets, depth) async {
+      Services.instance.delegateHandler = (task, toolsets, depth) async {
         await Future.delayed(const Duration(milliseconds: 50));
         return '子任务结果：$task';
       };
@@ -60,7 +61,7 @@ void main() {
     });
 
     test('后台完成后 status=done 且含结果', () async {
-      delegateHandler = (task, toolsets, depth) async {
+      Services.instance.delegateHandler = (task, toolsets, depth) async {
         await Future.delayed(const Duration(milliseconds: 100));
         return '完成：$task';
       };
@@ -85,7 +86,7 @@ void main() {
     });
 
     test('失败委派 → status=failed', () async {
-      delegateHandler = (task, toolsets, depth) async {
+      Services.instance.delegateHandler = (task, toolsets, depth) async {
         throw Exception('子代理挂了');
       };
       final res = decode(await registry.dispatch('delegate_task_async', {

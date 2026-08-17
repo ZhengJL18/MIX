@@ -13,15 +13,8 @@ library;
 import 'dart:async';
 
 import '../services/memory_db.dart';
+import '../services/services.dart';
 import 'registry.dart';
-
-/// ChatScreen 注册的子 agent 执行回调：给定任务，返回子 agent 的结果。
-/// [depth] 当前代理层数（0 = 主代理）；子代理在 depth+1 层执行。
-Future<String> Function(String task, List<String>? toolsets, int depth)?
-    delegateHandler;
-
-/// 异步委派用的记忆库（async_delegations 表，main.dart 注入）。
-MemoryDB? delegateDb;
 
 /// 最大代理层数（4 层代理 = 3 层子代理）。
 const int maxAgentDepth = 3;
@@ -32,7 +25,7 @@ int currentAgentDepth = 0;
 
 /// delegate_task 工具 handler。
 Future<String> _handleDelegate(Map<String, dynamic> args, [Map<String, dynamic>? kwargs]) async {
-  final handler = delegateHandler;
+  final handler = Services.instance.delegateHandler;
   if (handler == null) {
     return toolError('delegate_task: 子 agent 执行器未注册');
   }
@@ -57,8 +50,8 @@ Future<String> _handleDelegate(Map<String, dynamic> args, [Map<String, dynamic>?
 /// delegate_task_async handler：派发后立即返回 delegation id。
 Future<String> _handleDelegateAsync(
     Map<String, dynamic> args, [Map<String, dynamic>? kwargs]) async {
-  final handler = delegateHandler;
-  final db = delegateDb;
+  final handler = Services.instance.delegateHandler;
+  final db = Services.instance.delegateDb;
   if (handler == null) {
     return toolError('delegate_task_async: 子 agent 执行器未注册');
   }
@@ -128,7 +121,7 @@ Future<void> _runDelegation(
 /// delegation_status handler：查询委派状态。
 Future<String> _handleDelegationStatus(
     Map<String, dynamic> args, [Map<String, dynamic>? kwargs]) async {
-  final db = delegateDb;
+  final db = Services.instance.delegateDb;
   if (db == null) {
     return toolError('delegation_status: 记忆库不可用');
   }

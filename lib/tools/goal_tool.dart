@@ -10,10 +10,8 @@ library;
 import 'dart:convert';
 
 import '../services/goal_store.dart';
+import '../services/services.dart';
 import 'registry.dart';
-
-/// 全局 GoalStore 引用（main.dart 初始化）。
-GoalStore? goalStore;
 
 /// goal 工具 handler。
 Future<String> goalTool({
@@ -170,7 +168,7 @@ const Map<String, dynamic> goalSchema = {
 
 /// 注册 goal 工具。
 void registerGoalTool({GoalStore? store}) {
-  goalStore = store ?? goalStore;
+  Services.instance.goalStore = store ?? Services.instance.goalStore;
   registry.register(
     name: 'goal',
     toolset: 'memory',
@@ -184,10 +182,10 @@ void registerGoalTool({GoalStore? store}) {
         blockedReason: args['blocked_reason'] as String?,
         maxRounds: args['max_rounds'] as int?,
         evidenceObj: args['evidence_obj'] as String?,
-        store: goalStore,
+        store: Services.instance.goalStore,
       );
     },
-    checkFn: () => goalStore != null,
+    checkFn: () => Services.instance.goalStore != null,
     isAsync: true,
     emoji: '🎯',
   );

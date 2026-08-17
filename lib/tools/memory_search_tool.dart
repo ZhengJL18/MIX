@@ -8,6 +8,7 @@ library;
 import 'dart:convert';
 
 import '../services/memory_db.dart';
+import '../services/services.dart';
 import 'registry.dart';
 
 /// memory_search 工具 handler。
@@ -171,12 +172,9 @@ const Map<String, dynamic> memoryReadSchema = {
   },
 };
 
-/// 全局记忆库引用（main.dart 初始化）。
-MemoryDB? memoryDb;
-
 /// 注册记忆检索工具。
 void registerMemorySearchTools({MemoryDB? db}) {
-  memoryDb = db ?? memoryDb;
+  Services.instance.memoryDb = db ?? Services.instance.memoryDb;
   registry.register(
     name: 'memory_search',
     toolset: 'memory',
@@ -186,10 +184,10 @@ void registerMemorySearchTools({MemoryDB? db}) {
         query: args['query'] as String?,
         kind: args['kind'] as String?,
         limit: args['limit'] as int?,
-        db: memoryDb,
+        db: Services.instance.memoryDb,
       );
     },
-    checkFn: () => memoryDb != null,
+    checkFn: () => Services.instance.memoryDb != null,
     isAsync: true,
     emoji: '🔎',
   );
@@ -202,10 +200,10 @@ void registerMemorySearchTools({MemoryDB? db}) {
         docId: args['doc_id'] as int?,
         path: args['path'] as String?,
         maxChars: args['max_chars'] as int?,
-        db: memoryDb,
+        db: Services.instance.memoryDb,
       );
     },
-    checkFn: () => memoryDb != null,
+    checkFn: () => Services.instance.memoryDb != null,
     isAsync: true,
     emoji: '📄',
   );

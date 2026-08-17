@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mix/skills/skill_discovery.dart';
 import 'package:mix/skills/skill_parser.dart';
+import 'package:mix/services/services.dart';
 import 'package:mix/tools/skills_tool.dart';
 import 'package:path/path.dart' as p;
 
@@ -16,7 +17,7 @@ void main() {
     final skillsRoot = p.join(tmp.path, 'skills');
     Directory(p.join(skillsRoot, 'coding')).createSync(recursive: true);
     discovery = SkillDiscovery(skillsRoot: skillsRoot);
-    skillDiscovery = discovery;
+    Services.instance.skillDiscovery = discovery;
   });
 
   tearDown(() {
@@ -206,7 +207,8 @@ void main() {
     });
 
     test('无 skill 返回空', () {
-      skillDiscovery = SkillDiscovery(skillsRoot: p.join(tmp.path, 'empty'));
+      Services.instance.skillDiscovery =
+          SkillDiscovery(skillsRoot: p.join(tmp.path, 'empty'));
       final block = buildSkillsSystemPrompt();
       expect(block, isEmpty);
     });

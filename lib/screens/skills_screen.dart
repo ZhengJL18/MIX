@@ -7,6 +7,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../services/services.dart';
 import '../skills/skill_discovery.dart';
 import '../tools/skills_tool.dart';
 import '../theme/theme_ext.dart';
@@ -29,7 +30,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
   }
 
   Future<void> _load() async {
-    final discovery = skillDiscovery;
+    final discovery = Services.instance.skillDiscovery;
     if (discovery == null) {
       setState(() => _loading = false);
       return;
