@@ -45,6 +45,7 @@ import 'services/memory_summarizer.dart';
 import 'services/memory_tagger.dart';
 import 'services/multi_agent.dart';
 import 'services/notes_sync.dart';
+import 'services/services.dart';
 import 'services/storage_permission.dart';
 import 'services/study_engine.dart';
 import 'services/study_question_service.dart';
@@ -562,7 +563,8 @@ class _ChatScreenState extends State<ChatScreen> {
     };
     registerCronTools();
     cronFireHandler = _fireCronJob;
-    startCronScheduler();
+    // startCronScheduler 移到 _initCwd 完成后（修复启动竞态：
+    // 定时任务触发时 memoryStore/sessionDb 等服务可能未初始化）。
     registerVisionTool();
     registerStudyTools();
     registerNotesTools();
@@ -584,6 +586,10 @@ class _ChatScreenState extends State<ChatScreen> {
     final init = _initCwd();
     // 会话库就绪后，把当前会话历史恢复进 UI（重启 App 不再空白丢上下文）。
     init.then((_) {
+      // 所有服务初始化完成（或尝试过）→ 标记就绪 + 启动 cron 调度器。
+      // 修复启动竞态：cron 定时任务触发时服务必已就绪，不再静默失败。
+      Services.instance.markReady();
+      startCronScheduler();
       if (mounted && _currentSessionId != null) {
         _loadMessagesToUi(_currentSessionId!);
       }
@@ -1140,6 +1146,7 @@ class _ChatScreenState extends State<ChatScreen> {
         skillPath: '$dir/skills/question-design/SKILL.md',
         isCancelled: () => _activeAgent?.isCancelled ?? false,
       );
+      Services.instance.studyQuestionService = _studyQuestionService;
     }
     try {
       final result = await _studyQuestionService!.generate(
@@ -1242,6 +1249,7 @@ class _ChatScreenState extends State<ChatScreen> {
         skills: skillDiscovery,
       );
       _refine = refine;
+      Services.instance.refine = _refine;
     }
     if (!mounted) return;
     final proposals = await refine.suggest();
@@ -1575,9 +1583,11 @@ class _ChatScreenState extends State<ChatScreen> {
     // 记忆存储（冻结快照）。
     try {
       registerMemoryTool(baseDir: dir);
+      Services.instance.memoryStore = memoryStore;
       // P0 记忆检索（v4 设计稿）：分词器 + 记忆库 + 检索工具。
       await initChineseSegmenter(dir);
       _memoryDb = MemoryDB(dbPath: '$dir/memory.db');
+      Services.instance.memoryDb = _memoryDb;
       await _memoryDb!.init();
       // 迁移补索引：sqlite3 3.x 迁入后存量文档重建 FTS（旧库 FTS 表为空）。
       await _memoryDb!.rebuildFts();
@@ -1587,10 +1597,13 @@ class _ChatScreenState extends State<ChatScreen> {
       delegateDb = _memoryDb;
       // P1 热词提取器（自动标签管线，idf 表懒加载）。
       _memoryTagger = MemoryTagger();
+      Services.instance.memoryTagger = _memoryTagger;
       await _memoryTagger!.loadIdf(dir);
       _memory = MemoryManager(store: memoryStore!, memoryDb: _memoryDb);
+      Services.instance.memoryManager = _memory;
       // P3 Goal 系统（DSH 启示 1）：持久目标存储 + 工具 + 自动续跑注入。
       _goalStore = GoalStore(_memoryDb!);
+      Services.instance.goalStore = _goalStore;
       registerGoalTool(store: _goalStore);
       goalCatalogProvider = () => _activeGoalsBlock;
       await _refreshActiveGoals();
@@ -1604,6 +1617,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _sessionDb = SessionDB(dbPath: '$dir/state.db');
       await _sessionDb!.init();
       sessionDb = _sessionDb;
+      Services.instance.sessionDb = _sessionDb;
       // 恢复到上次活动的会话（无则 'main'）。createSession 对已存在会话
       // 保留原 started_at，不会把旧会话刷新成"刚刚"顶置历史页。
       _currentSessionId = await _loadLastSessionId();
@@ -1614,6 +1628,7 @@ class _ChatScreenState extends State<ChatScreen> {
       final skillsRoot = '$dir/skills';
       Directory(skillsRoot).createSync(recursive: true);
       registerSkillTools(skillsRoot: skillsRoot);
+      Services.instance.skillDiscovery = skillDiscovery;
       // P3 技能目录注入（DSH 启示 4）：技能名+一句话并入 agent 系统提示
       // volatile 层，避免想不起可用技能。
       skillCatalogProvider = () {
@@ -1636,18 +1651,21 @@ class _ChatScreenState extends State<ChatScreen> {
       final engine = StudyEngine(dbPath: '$dir/study.db');
       await engine.init();
       _studyEngine = engine;
+      Services.instance.studyEngine = engine;
     } catch (_) {}
     // P4 学习状态描绘（v4 §6.3）：记忆证据流 → 可提取性/掌握/复习推荐。
     try {
       final md = _memoryDb;
       if (md != null && _studyEngine != null) {
         _memoryLearning = MemoryLearning(db: md, studyEngine: _studyEngine);
+        Services.instance.memoryLearning = _memoryLearning;
         registerStudyStatusTool(learning: _memoryLearning);
         // 画像投影（证据驱动，回合后刷新）。
         _memoryProfile = MemoryProfileProjector(
           learning: _memoryLearning!,
           db: md,
         );
+        Services.instance.memoryProfile = _memoryProfile;
         await _memoryProfile!.saveToMemory();
       }
     } catch (_) {}
@@ -1662,6 +1680,7 @@ class _ChatScreenState extends State<ChatScreen> {
           tagger: tagger,
           studyEngine: _studyEngine,
         );
+        Services.instance.memoryIndexer = _memoryIndexer;
         await _memoryIndexer!.syncKnowledgePoints();
         memoryIndexHook = (args, result) async {
           final indexer = _memoryIndexer;
@@ -1731,6 +1750,7 @@ class _ChatScreenState extends State<ChatScreen> {
               return res.content;
             },
           );
+          Services.instance.memorySummarizer = _memorySummarizer;
         }
       }
     } catch (_) {}
@@ -1758,6 +1778,7 @@ class _ChatScreenState extends State<ChatScreen> {
           notesRoot: notesRootPath(dir),
           indexer: _memoryIndexer,
         );
+        Services.instance.notesSync = _notesSync;
         await _notesSync!.syncNotes();
       }
     } catch (_) {}
@@ -1773,6 +1794,7 @@ class _ChatScreenState extends State<ChatScreen> {
         notesSync: _notesSync,
         indexer: _memoryIndexer,
       );
+      Services.instance.debugServer = _debugServer;
       await _debugServer!.start();
     } catch (_) {}
     // 自进化（Continual Harness）：轨迹 / prompt notes / 编辑台账。
@@ -1780,6 +1802,10 @@ class _ChatScreenState extends State<ChatScreen> {
       _trajectory = TrajectoryStore(filePath: '$dir/refine/trajectory.jsonl');
       _promptNotes = PromptNotesStore(filePath: '$dir/refine/prompt_notes.json');
       _editJournal = EditJournal(filePath: '$dir/refine/edit_journal.json');
+      Services.instance
+        ..trajectory = _trajectory
+        ..promptNotes = _promptNotes
+        ..editJournal = _editJournal;
     } catch (_) {}
   }
 
