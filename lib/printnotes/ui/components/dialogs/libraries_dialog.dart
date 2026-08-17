@@ -5,7 +5,9 @@ import 'package:mix/printnotes/ui/widgets/menu_tile.dart';
 import 'package:mix/printnotes/utils/handlers/open_url_link.dart';
 import 'package:mix/printnotes/constants/library_list.dart';
 
-void showLibrariesDialog(BuildContext context) {
+Future<void> showLibrariesDialog(BuildContext context) async {
+  final libraries = await loadLibraries();
+  if (!context.mounted) return;
   showDialog(
     context: context,
     builder: (BuildContext context) {

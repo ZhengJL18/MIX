@@ -1,5 +1,5 @@
 name: mix
-description: "MIX - 基于推荐算法、像刷抖音一样学习的 Flutter 学习 App"
+description: "MIX - 运行在 Android 上的纯 Dart 通用 AI Agent（复刻 Hermes Agent），聊天驱动的全能智能助手"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -130,6 +130,9 @@ flutter:
     - assets/katex/
     - assets/dict.dgz
     - assets/jieba_idf.txt
+    # 第三方库许可证数据（由 dart_pubspec_licenses 生成，运行时加载，
+    # 避免约 1.9MB 许可证字符串编译进 App）。
+    - assets/oss_licenses.json
 
   # To add assets to your application, add an assets section, like this:
   # assets:
