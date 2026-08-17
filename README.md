@@ -5,6 +5,7 @@
 [![Build APK](https://github.com/ZhengJL18/MIX/actions/workflows/build-apk.yml/badge.svg)](https://github.com/ZhengJL18/MIX/actions/workflows/build-apk.yml)
 [![Platform](https://img.shields.io/badge/platform-Android-3DDC84)](https://flutter.dev)
 [![Based on](https://img.shields.io/badge/based%20on-Hermes%20Agent-FF6B35)](https://github.com/NousResearch/hermes-agent)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
 **MIX 是 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的纯 Dart 复刻**：在 Flutter 沙盒里用 Dart 逐文件重写其核心闭环，把"会自己调工具的 AI"塞进一个 APK。它不是又一个聊天机器人，而是一个能在你手机上真干活的通用智能体。
 
@@ -75,4 +76,4 @@ MIX 以 [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent
 欢迎贡献。改动前请先读 `AGENTS.md`（维护约定）与 `docs/HANDOFF.md`（进度与踩坑）。
 
 ## License
-本仓库目前未在根目录提供开源许可证文件。在许可证明确之前保留所有权利；如需使用、修改或分发，请先联系作者。
+本项目基于 [MIT License](./LICENSE) 开源，欢迎使用、修改与分发。
