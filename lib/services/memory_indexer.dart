@@ -10,6 +10,7 @@
 /// 全部确定性、零 LLM。写路径 fire-and-forget（不阻塞 agent 回合）。
 library;
 
+import 'chinese_segmenter.dart';
 import 'memory_db.dart';
 import 'memory_tagger.dart';
 import 'study_engine.dart';
@@ -44,6 +45,12 @@ class MemoryIndexer {
     int? mtime,
   }) async {
     try {
+      // 幂等：同 path 内容未变 → 直接返回已有 id，不重跑标签/连边
+      // （防重复索引导致 tag 边权不断 +0.5 膨胀、旧标签残留）。
+      final existing = await db.getDocByPath(path);
+      if (existing != null && existing['content'] == content) {
+        return existing['id'] as int;
+      }
       final docId = await db.upsertDoc(
         path: path,
         title: title,
@@ -61,18 +68,24 @@ class MemoryIndexer {
 
   /// 自动标签 + 标签互连（v4 §5 表#1：热词 top-k → 标签 → 同标签互连）。
   Future<void> _autoTag(int docId, String content) async {
+    // 重索引重建：先清旧标签与旧 tag 边，再按新内容重建
+    // （防旧标签残留 + 防同一对文档因 N 个共同标签被累加 N×0.5 膨胀）。
+    await db.removeAllTags(docId);
+    await db.removeLinksOf(docId, kind: 'tag');
     final hotwords = tagger.extractHotwords(content, topK: 5);
     if (hotwords.isEmpty) return;
+    final peerIds = <int>{};
     for (final hw in hotwords) {
       await db.addTag(docId, hw.word, score: hw.score);
-      // 同标签已有文档 → 互连（Hebbian）。
+      // 同标签已有文档 → 互连（Hebbian）。多个共同标签只连一次。
       final peers = await db.searchByTag(hw.word, limit: 20);
       for (final peer in peers) {
         final peerId = peer['id'] as int;
-        if (peerId != docId) {
-          await db.addLink(docId, peerId, kind: 'tag', weight: 0.5);
-        }
+        if (peerId != docId) peerIds.add(peerId);
       }
+    }
+    for (final peerId in peerIds) {
+      await db.addLink(docId, peerId, kind: 'tag', weight: 0.5);
     }
   }
 
@@ -82,8 +95,11 @@ class MemoryIndexer {
     if (engine == null) return;
     try {
       final kps = await engine.listKps();
+      // 精确匹配：分词后按独立词匹配 + 名称长度门槛（≥2 字），
+      // 防短名知识点（如"极限"）在长文本里大量误连（原 text.contains 全扫）。
+      final words = segmentWords(text).toSet();
       for (final kp in kps) {
-        if (kp.name.isNotEmpty && text.contains(kp.name)) {
+        if (kp.name.length >= 2 && words.contains(kp.name)) {
           final kpDocId = await _ensureKpDoc(kp);
           if (kpDocId != null && kpDocId != docId) {
             await db.addLink(docId, kpDocId, kind: 'knowledge');
@@ -97,6 +113,9 @@ class MemoryIndexer {
   Future<int?> _ensureKpDoc(KpInfo kp) async {
     try {
       final path = '$kKnowledgeDocPathPrefix${kp.id}';
+      // 幂等：已存在则复用（内容固定，无需重写，避免摘要被标 stale）。
+      final existing = await db.getDocByPath(path);
+      if (existing != null) return existing['id'] as int;
       return await db.upsertDoc(
         path: path,
         title: kp.name,

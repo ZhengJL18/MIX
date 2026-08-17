@@ -43,9 +43,11 @@ class NotesSyncService {
     try {
       final root = Directory(notesRoot);
       if (!root.existsSync()) return 0;
+      final onDisk = <String>{};
       await for (final file in _walkMd(root)) {
         try {
           final rel = p.relative(file.path, from: notesRoot);
+          onDisk.add(rel);
           final stat = file.statSync();
           final mtime = stat.modified.millisecondsSinceEpoch;
           // 增量：mtime 未变则跳过。
@@ -85,8 +87,27 @@ class NotesSyncService {
           continue; // 单文件失败不中断。
         }
       }
+      // 清理幽灵文档：笔记删除/重命名后，库中残留行仍可被检索。
+      await _removeGhostDocs(onDisk);
     } catch (_) {}
     return updated;
+  }
+
+  /// 清理幽灵文档：库中 kind='note' 但盘上已不存在的行。
+  Future<void> _removeGhostDocs(Set<String> onDisk) async {
+    try {
+      final rows = await db.db.select(
+        "SELECT id, path FROM memory_docs WHERE kind = 'note'",
+      );
+      for (final r in rows) {
+        final path = r['path'] as String? ?? '';
+        if (!path.startsWith('notes/')) continue;
+        final rel = path.substring('notes/'.length);
+        if (!onDisk.contains(rel)) {
+          await db.deleteDoc(r['id'] as int);
+        }
+      }
+    } catch (_) {}
   }
 
   /// 递归遍历笔记库 .md 文件（排除特殊目录）。

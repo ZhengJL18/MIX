@@ -412,6 +412,11 @@ class MemoryDB {
     );
   }
 
+  /// 移除文档全部标签（重索引重建用，防旧标签残留）。
+  Future<void> removeAllTags(int docId) async {
+    db.execute('DELETE FROM memory_tags WHERE doc_id = ?', [docId]);
+  }
+
   /// 文档全部标签（按 score 降序）。
   Future<List<String>> getTags(int docId) async => getTagsSync(docId);
 
@@ -447,6 +452,21 @@ class MemoryDB {
         'UPDATE memory_links SET weight = weight + ?1 '
         'WHERE src = ?2 AND dst = ?3 AND kind = ?4',
         [weight, src, dst, kind],
+      );
+    }
+  }
+
+  /// 移除文档的关联边（重索引重建用；kind 为空则清全部）。
+  Future<void> removeLinksOf(int docId, {String? kind}) async {
+    if (kind != null) {
+      db.execute(
+        'DELETE FROM memory_links WHERE (src = ? OR dst = ?) AND kind = ?',
+        [docId, docId, kind],
+      );
+    } else {
+      db.execute(
+        'DELETE FROM memory_links WHERE src = ? OR dst = ?',
+        [docId, docId],
       );
     }
   }
@@ -577,6 +597,15 @@ class MemoryDB {
     final rows = _query(
       'SELECT * FROM memory_docs WHERE id = ? LIMIT 1',
       [id],
+    );
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// 按 path 读文档（幂等索引用：内容未变则不重跑）。
+  Future<Map<String, dynamic>?> getDocByPath(String path) async {
+    final rows = _query(
+      'SELECT * FROM memory_docs WHERE path = ? LIMIT 1',
+      [path],
     );
     return rows.isEmpty ? null : rows.first;
   }
