@@ -19,6 +19,7 @@ import 'dart:isolate';
 import 'binary_extensions.dart';
 import 'file_operations.dart';
 import 'file_safety.dart';
+import 'patch_parser.dart';
 import 'registry.dart';
 
 /// 共享文件操作实例（Android App 沙盒 = documents 目录）。
@@ -130,21 +131,6 @@ String? _rejectV4aTraversal(String v4aPath) {
     );
   }
   return null;
-}
-
-/// 从 V4A patch 提取文件路径（Update/Add/Delete/Move 头）。
-List<String> _extractV4aPaths(String patch) {
-  final paths = <String>[];
-  final headerRe = RegExp(r'^\*\*\*\s*(?:Update|Add|Delete)\s+File:\s*(.+)$', multiLine: true);
-  for (final m in headerRe.allMatches(patch)) {
-    paths.add(m.group(1)!.trim());
-  }
-  final moveRe = RegExp(r'^\*\*\*\s*Move\s+File:\s*(.+?)\s*->\s*(.+)$', multiLine: true);
-  for (final m in moveRe.allMatches(patch)) {
-    paths.add(m.group(1)!.trim());
-    paths.add(m.group(2)!.trim());
-  }
-  return paths;
 }
 
 /// read_file 工具：分页 + 行号。
@@ -442,12 +428,22 @@ String patchTool({
     pathsToCheck.add(path);
   }
   if (mode == 'patch' && patch != null) {
-    for (final v4aPath in _extractV4aPaths(patch)) {
-      final err = _rejectV4aTraversal(v4aPath);
-      if (err != null) {
-        return err;
+    // 守卫直接消费 parseV4aPatch 的解析结果：解析器用非锚定 firstMatch，
+    // 前导空格的 V4A 操作头也会被识别为真实操作；若守卫用锚定在列 0 的
+    // 平行正则就会漏掉这些路径，绕过 traversal/cross-profile 检查。
+    // 先解析、基于解析出的操作做安全校验，不再维护平行正则。
+    final (v4aOps, _) = parseV4aPatch(patch);
+    for (final op in v4aOps) {
+      for (final v4aPath in [
+        op.filePath,
+        if (op.newPath != null && op.newPath!.isNotEmpty) op.newPath!,
+      ]) {
+        final err = _rejectV4aTraversal(v4aPath);
+        if (err != null) {
+          return err;
+        }
+        pathsToCheck.add(v4aPath);
       }
-      pathsToCheck.add(v4aPath);
     }
   }
   for (final p in pathsToCheck) {

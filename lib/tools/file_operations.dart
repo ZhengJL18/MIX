@@ -2098,10 +2098,15 @@ class LocalFileOperations implements FileOperations {
       RegExp(r'([.+^${}()|\[\]\\])'),
       (m) => '\\${m[1]}',
     );
+    // `**` 必须跨目录（`.*`）。若先替换成 `.*` 再被下面的单 `*` 替换二次
+    // 处理，`.*` 里的 `*` 会变成 `[^/]*`，`**` 退化为单层通配。先用占位符
+    // 标记 `**`，处理完单 `*`/`?` 后再把占位符还原成 `.*`。
+    const doubleStar = '@@DOUBLE_STAR@@';
     re = re
-        .replaceAllMapped(RegExp(r'\*\*+'), (_) => '.*')
+        .replaceAllMapped(RegExp(r'\*\*+'), (_) => doubleStar)
         .replaceAll('*', '[^/]*')
-        .replaceAll('?', '.');
+        .replaceAll('?', '.')
+        .replaceAll(doubleStar, '.*');
     return RegExp('^$re\$').hasMatch(name);
   }
 

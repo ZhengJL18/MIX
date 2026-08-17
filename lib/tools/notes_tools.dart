@@ -18,6 +18,11 @@ String? _notesRootCached;
 /// 最近一次 notes_write 成功写入的笔记绝对路径（聊天侧深链「打开笔记」用）。
 String? lastWrittenNotePath;
 
+/// 工具最近一次成功写入某文件后的 (mtime, length) 快照，键为解析后的绝对路径。
+/// 写入前用它比对文件是否在工具上次写入后被其他写入方（如 UI 自动保存）改过；
+/// 改过则本次内容落同名 .conflict 副本，避免互相覆盖（last-write-wins）。
+final Map<String, (DateTime, int)> _lastWriteState = {};
+
 /// 解析笔记库根目录（documents/notes）。首次调用缓存。
 Future<String> _notesRoot() async {
   if (_notesRootCached != null) return _notesRootCached!;
@@ -179,11 +184,36 @@ Future<String> _handleNotesWrite(Map<String, dynamic> args,
     }
     await Directory(p.dirname(path)).create(recursive: true);
     final f = File(path);
+
+    // 写入前比对 mtime/length：文件在工具上次写入后被其他写入方（如 UI 自动
+    // 保存整文件写）改过，则本次内容落同名 .conflict 副本，不直接覆盖对方。
+    if (await f.exists()) {
+      final prev = _lastWriteState[path];
+      if (prev != null) {
+        final curMod = await f.lastModified();
+        final curLen = await f.length();
+        if (curMod != prev.$1 || curLen != prev.$2) {
+          final conflictPath = '$path.conflict';
+          final conflictFile = File(conflictPath);
+          await conflictFile.writeAsString(content);
+          return toolResult({
+            'path': p.relative(path, from: await _notesRoot()),
+            'mode': mode,
+            'conflict': true,
+            'conflict_path':
+                p.relative(conflictPath, from: await _notesRoot()),
+            'bytes': (await conflictFile.length()).toString(),
+          });
+        }
+      }
+    }
+
     if (mode == 'append' && await f.exists()) {
       await f.writeAsString('\n$content', mode: FileMode.append);
     } else {
       await f.writeAsString(content);
     }
+    _lastWriteState[path] = (await f.lastModified(), await f.length());
     lastWrittenNotePath = path;
     return toolResult({
       'path': p.relative(path, from: await _notesRoot()),

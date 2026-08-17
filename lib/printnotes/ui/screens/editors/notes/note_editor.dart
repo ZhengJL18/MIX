@@ -67,6 +67,8 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
   Timer? _autoSaveTimer;
   Timer? _scrollToHeader;
   bool _hasUnsavedChanges = false;
+  /// "外部修改"弹窗已打开守卫，避免 5s 轮询在弹窗未关时叠加对话框。
+  bool _isExternalChangeDialogOpen = false;
 
   final Duration autoSaveInterval = Duration(seconds: 3);
   final Duration fileCheckInterval = Duration(seconds: 5);
@@ -155,6 +157,8 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
   /// Check if file has been modified outside of app
   Future<void> _checkForExternalChanges(BuildContext context) async {
     if (_isError || _isLoading) return;
+    // 弹窗已打开时不重复弹出（5s 轮询会持续叠加对话框）
+    if (_isExternalChangeDialogOpen) return;
 
     try {
       final file = File.fromUri(widget.fileUri);
@@ -164,31 +168,42 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
           lastMod.isAfter(_lastModifiedTime!) &&
           mounted &&
           context.mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => AlertDialog(
-            title: const Text('文件已更改'),
-            content: const Text(
-                '此文件已在 App 外被修改。是否重新加载？'),
-            actions: [
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  _saveFileContent(context);
-                },
-                child: const Text('保留我的更改'),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  _loadFileContent();
-                },
-                child: const Text('重新加载文件'),
-              ),
-            ],
-          ),
-        );
+        _isExternalChangeDialogOpen = true;
+        try {
+          await showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('文件已更改'),
+              content: const Text(
+                  '此文件已在 App 外被修改。是否重新加载？'),
+              actions: [
+                TextButton(
+                  onPressed: () async {
+                    Navigator.of(dialogContext).pop();
+                    // 冲突时 _saveFileContent 会把本地内容写入同名 .conflict
+                    // 副本而不是整文件覆盖，保留外部（agent notes_write）写入
+                    // 的内容；保存后重载磁盘版本，避免后续自动保存再覆盖。
+                    final saved = await _saveFileContent(context);
+                    if (saved && context.mounted) {
+                      await _loadFileContent();
+                    }
+                  },
+                  child: const Text('保留我的更改'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop();
+                    _loadFileContent();
+                  },
+                  child: const Text('重新加载文件'),
+                ),
+              ],
+            ),
+          );
+        } finally {
+          _isExternalChangeDialogOpen = false;
+        }
       }
     } catch (e) {
       debugPrint('Error checking file modification: $e');
@@ -199,9 +214,32 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     if (_isError) return true;
     try {
       final file = File.fromUri(widget.fileUri);
+
+      // 写入前比对 mtime：文件在上次加载/保存后被外部（如 agent notes_write）
+      // 改动过，则不整文件覆盖（避免 last-write-wins 冲掉对方内容），把当前
+      // 编辑器内容写入同名 .conflict 副本。此处不更新 _lastModifiedTime，确保
+      // 后续保存/轮询继续识别冲突，直到编辑器与磁盘重新同步。
+      if (await file.exists() && _lastModifiedTime != null) {
+        final onDiskMod = await file.lastModified();
+        if (onDiskMod.isAfter(_lastModifiedTime!)) {
+          final conflictFile = File('${file.path}.conflict');
+          await conflictFile.writeAsString(_notesController.text);
+          _hasUnsavedChanges = false;
+          if (context.mounted) {
+            customSnackBar(
+                    '检测到外部修改，您的更改已保存为 '
+                    '${path.basename(conflictFile.path)}',
+                    type: 'warning')
+                .show(context);
+          }
+          return true;
+        }
+      }
+
       await file.writeAsString(_notesController.text);
 
-      _lastModifiedTime = DateTime.now();
+      // 回读文件真实 mtime，避免与文件系统时间精度不一致导致误报"外部修改"。
+      _lastModifiedTime = await file.lastModified();
       _hasUnsavedChanges = false;
 
       return true;

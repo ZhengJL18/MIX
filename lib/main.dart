@@ -1255,6 +1255,15 @@ class _ChatScreenState extends State<ChatScreen> {
   void _applyRefineProposals(_ChatMessage msg) {
     final refine = _refine;
     if (refine == null) return;
+    // 已知限制：暂无逐条确认/diff 预览。应用前把每条提议的摘要
+    // （类型 + 目标 + 内容前 200 字）追加到可观测输出，便于审阅与审计。
+    for (final p in msg.refineProposals) {
+      final head = p.content.length <= 200
+          ? p.content
+          : '${p.content.substring(0, 200)}…';
+      debugPrint('[refine:apply] ${p.displayLabel} | 目标: ${p.target} | '
+          '内容: $head');
+    }
     for (final p in msg.refineProposals) {
       refine.apply(p);
     }

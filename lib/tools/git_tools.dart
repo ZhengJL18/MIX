@@ -385,37 +385,20 @@ Signature _makeSignature(Repository repo, String? name, String? email) {
   }
 }
 
-/// 简化 status：列出 index 里相对 HEAD 有差异的路径。
-/// git2dart 没有直接的 status API，用 index 与 head tree 对比。
+/// status 条目：列出 index/HEAD 与工作区之间有差异的路径。
+/// 直接使用 git2dart 的 repo.status（libgit2 git_status_list_new），
+/// 由 libgit2 递归处理嵌套目录，不再手动拿 HEAD tree 顶层 entries
+/// 对比 index 全路径（那会把所有已跟踪文件误报为改动、嵌套文件误报为 new）。
 List<dynamic> _statusEntries(Repository repo) {
-  final headOid = _tryHeadOid(repo);
-  if (headOid == null) {
-    // 无提交：index 全部是新文件。
-    return repo.index.toList();
-  }
-  // headOid 是 HEAD 指向的 **commit** oid；Tree.lookup 需要 **tree** oid，
-  // 直接传 commit oid 会让 libgit2 报 "requested type does not match the
-  // type in the ODB"。用 Commit.lookup 取 commit 的 tree。
-  final headTree = Commit.lookup(repo: repo, oid: headOid).tree;
-  final idx = <String>{for (final e in repo.index) e.path};
-  final headPaths = <String>[
-    for (final e in headTree.entries) e.name,
-  ];
   final changed = <dynamic>[];
-  for (final hp in headPaths) {
-    if (!idx.contains(hp)) {
-      changed.add({'path': hp}); // 已从 index 删除
+  for (final MapEntry(key: path, value: flags) in repo.status.entries) {
+    // 未跟踪（仅 wtNew）由 _untrackedFiles 单独列出，这里跳过避免重复。
+    if (flags.length == 1 && flags.contains(GitStatus.wtNew)) {
+      continue;
     }
+    changed.add({'path': path});
   }
-  // 简化：只报差异概览。
-  final all = {...idx, ...headPaths};
-  for (final f in all) {
-    final inIdx = idx.contains(f);
-    final inHead = headPaths.contains(f);
-    if (inIdx && !inHead) changed.add({'path': '$f (new)'});
-    if (inIdx && inHead) changed.add({'path': '$f (modified?)'});
-  }
-  return changed.toSet().toList();
+  return changed;
 }
 
 /// git diff：工作区未暂存改动（indexToWorkdir）的 unified diff。
@@ -463,9 +446,10 @@ Future<String> gitDiff({required String path, String? target}) {
 /// 不用 `Repository.clone`（它全量拉取所有分支 + 全部 tag + 完整历史，
 /// 4GB 设备上易 OOM）。改为：
 ///   1. init 空仓库
-///   2. 配 origin，fetch refspec 限定**单分支 master**
-///   3. fetch（只下载 master 历史对象，不拉 136 个 tag 与其他分支的 refs）
-///   4. 建本地 master + checkout 工作树
+///   2. 配 origin，先 ls-remote（--symref 语义）探测远端 HEAD 符号引用
+///      取默认分支名（main/master；拿不到则 fallback master）
+///   3. fetch（refspec 限定**单个默认分支**，只下载该分支历史对象）
+///   4. 建本地分支 + checkout 工作树
 ///
 /// [token] 提供时用 HTTPS + PAT（UserPass username 用 'x-access-token'）。
 /// 不支持认证时（无 token）尝试匿名 clone（公开仓库）。
@@ -483,27 +467,34 @@ Future<String> gitClone({
           : const Callbacks();
       // 1. 空仓库（比 Repository.clone 轻，且可控 fetch 范围）。
       final repo = Repository.initBasic(path: localPath, bare: false);
-      // 2. origin 默认 fetch refspec 只跟 master 单分支。
-      Remote.create(
-        repo: repo,
-        name: 'origin',
-        url: url,
-        fetch: '+refs/heads/master:refs/remotes/origin/master',
-      );
-      // 3. 显式单分支 fetch（不拉 tags / 其他分支的 refs）。
-      final remote = Remote.lookup(repo: repo, name: 'origin');
-      remote.fetch(
-        refspecs: const ['+refs/heads/master:refs/remotes/origin/master'],
-        callbacks: callbacks,
-      );
-      // 4. 本地 master → 远程 master，checkout 工作树。
+      // 2. 配 origin。先不加 fetch refspec（实际 fetch 始终显式传单分支
+      //    refspec，配置里的默认 refspec 不影响本次下载范围）。
+      final remote = Remote.create(repo: repo, name: 'origin', url: url);
+      // 3. 探测远端 HEAD 符号引用（等价 `git ls-remote --symref`）取默认
+      //    分支名；拿不到（无符号引用 / 连接失败）则 fallback master。
+      var branch = 'master';
+      try {
+        for (final ref in remote.ls(callbacks: callbacks)) {
+          if (ref.name == 'HEAD' && ref.symRef.isNotEmpty) {
+            final sym = ref.symRef;
+            branch = sym.startsWith('refs/heads/') ? sym.substring(11) : sym;
+            break;
+          }
+        }
+      } catch (_) {
+        branch = 'master';
+      }
+      // 4. 显式单分支 fetch（不拉 tags / 其他分支的 refs）。
+      final fetchSpec = '+refs/heads/$branch:refs/remotes/origin/$branch';
+      remote.fetch(refspecs: [fetchSpec], callbacks: callbacks);
+      // 5. 本地分支 → 远程默认分支，checkout 工作树。
       final remoteHead = Branch.lookup(
-          repo: repo, name: 'origin/master', type: GitBranch.remote);
+          repo: repo, name: 'origin/$branch', type: GitBranch.remote);
       final headCommit = Commit.lookup(repo: repo, oid: remoteHead.target);
-      Branch.create(repo: repo, name: 'master', target: headCommit);
-      repo.setHead('refs/heads/master');
+      Branch.create(repo: repo, name: branch, target: headCommit);
+      repo.setHead('refs/heads/$branch');
       repo.reset(oid: remoteHead.target, resetType: GitReset.hard);
-      return 'Cloned $url → $localPath（单分支 master，未拉 tags）';
+      return 'Cloned $url → $localPath（单分支 $branch，未拉 tags）';
     } catch (e) {
       return toolError('git clone failed: $e');
     }

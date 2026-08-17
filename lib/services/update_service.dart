@@ -98,6 +98,7 @@ class UpdateService {
   }
 
   static Future<UpdateInfo?> _fetchFromGitHub() async {
+    try {
       final resp = await http
           .get(
             Uri.parse('https://api.github.com/repos/$_repo/releases/latest'),
@@ -110,7 +111,8 @@ class UpdateService {
       debugPrint('[Update] HTTP ${resp.statusCode}');
 
       if (resp.statusCode != 200) return null;
-      final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+      final data =
+          jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
 
       final tagName = data['tag_name'] as String? ?? '';
       final assets = data['assets'] as List<dynamic>? ?? [];
@@ -136,8 +138,9 @@ class UpdateService {
 
       // 远端 buildNumber 从 tag 末尾 +N 解析（如 v1.0.0+12 → 12）
       final plusIdx = tagName.lastIndexOf('+');
-      final remoteBuild =
-          plusIdx >= 0 ? int.tryParse(tagName.substring(plusIdx + 1)) ?? 0 : 0;
+      final remoteBuild = plusIdx >= 0
+          ? int.tryParse(tagName.substring(plusIdx + 1)) ?? 0
+          : 0;
       debugPrint('[Update] remote build=$remoteBuild');
 
       if (remoteBuild <= localBuild) {
@@ -151,6 +154,12 @@ class UpdateService {
         downloadUrl: downloadUrl,
         notes: data['body'] as String?,
       );
+    } catch (e) {
+      // 与 _fetchFromMirror 一致：GitHub 网络异常就地吞掉并返回 null，
+      // 不让 checkForUpdateDetailed 整体抛出、丢弃镜像源已拿到的成功结果。
+      debugPrint('[Update] GitHub 检查失败: $e');
+      return null;
+    }
   }
 
   /// 下载并安装新版 APK（app_installer_plus 自带 FileProvider + 授权引导）。
