@@ -181,16 +181,6 @@ Map<String, ToolsetDef> toolsetDefs = {
         'and cloud extract (large PDF / OCR / pandoc)',
     tools: ['md_to_docx', 'md_to_pdf', 'cloud_extract'],
   ),
-  'git': ToolsetDef(
-    description:
-        'Git version control via embedded libgit2: init, status, add, '
-        'commit, log, branch, clone, push, pull, diff',
-    tools: [
-      'git_version', 'git_init', 'git_status', 'git_add', 'git_commit',
-      'git_log', 'git_branch', 'git_diff', 'git_clone', 'git_push', 'git_pull',
-      'github_ci_logs',
-    ],
-  ),
   'tts': ToolsetDef(
     description:
         'Text-to-speech: convert text to audio with Edge TTS (free), '

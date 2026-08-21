@@ -358,7 +358,7 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _planMode = false; // Claude Code 式 plan 模式：先出计划，批准后执行。
   String? _pendingPlan; // 待批准的计划。
   String? _pendingTask; // 待执行的任务原文（批准计划后执行用）。
-  String _workflowId = 'daily'; // 当前工作流（AgentWorkflow）。
+  String _workflowId = 'study'; // 当前工作流（AgentWorkflow），默认学习模式。
   MIXAgent? _activeAgent;
   MultiAgentService? _multiAgent;
   int _discussionMsgIdx = -1; // 当前讨论消息索引（-1 表示无）。

@@ -10,7 +10,6 @@ import '../config/mix_config.dart';
 import '../services/storage_permission.dart';
 import 'department_screen.dart';
 import 'fast_model_screen.dart';
-import 'github_screen.dart';
 import 'history_screen.dart';
 import 'memory_screen.dart';
 import 'skills_screen.dart';
@@ -624,17 +623,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                 onTap: () => Services.instance.checkUpdateHandler?.call(),
               ),
               const Divider(height: 1),
-              ListTile(
-                leading: const Icon(Icons.code),
-                title: const Text('GitHub'),
-                subtitle: const Text('项目仓库'),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const GitHubScreen()),
-                  );
-                },
-              ),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.info_outline),

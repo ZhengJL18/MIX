@@ -32,7 +32,7 @@ const List<AgentDepartment> presetDepartments = [
     name: '代码部',
     description: '写代码、重构、调试、代码审查',
     roles: ['架构师', '实现者', '审查者'],
-    toolsets: ['file', 'git', 'web', 'delegate', 'moa'],
+    toolsets: ['file', 'web', 'delegate', 'moa'],
   ),
   AgentDepartment(
     id: 'research',

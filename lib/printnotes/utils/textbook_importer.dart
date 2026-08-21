@@ -10,6 +10,9 @@ import 'package:archive/archive.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import 'package:html/dom.dart' show Element, Node, Text;
+import 'package:html/parser.dart' show parse;
+
 import '../../notes/notes_paths.dart';
 
 /// 一个教材源。
@@ -24,6 +27,9 @@ class TextbookSource {
   final bool isIpynb; // 源是否 ipynb（需转 md）
   final int chapterCount; // 预估章节数
   final String? subdir; // 解压后取哪个子目录（null = 全仓库取 md）
+  final String kind; // 'githubTarball' | 'html312233'
+  final String? baseUrl; // html312233: 站点根
+  final String? manifestUrl; // html312233: index.json 地址
 
   const TextbookSource({
     required this.name,
@@ -36,6 +42,9 @@ class TextbookSource {
     this.isIpynb = false,
     this.chapterCount = 0,
     this.subdir,
+    this.kind = 'githubTarball',
+    this.baseUrl,
+    this.manifestUrl,
   });
 }
 
@@ -80,6 +89,17 @@ const List<TextbookSource> kTextbookSources = [
     chapterCount: 25,
     subdir: 'docs',
   ),
+  TextbookSource(
+    name: '312233 教材库',
+    subject: '综合',
+    description: '312233.xyz 全库教材（HTML 章拆 → 转 Markdown，公式 $...$ 原样保留）',
+    license: '见各书（站点 312233.xyz）',
+    tarballUrl: '',
+    sourceUrl: 'https://312233.xyz',
+    kind: 'html312233',
+    baseUrl: 'https://312233.xyz',
+    manifestUrl: 'https://312233.xyz/index.json',
+  ),
 ];
 
 /// 导入一本教材到 subject_library/<name>。
@@ -88,6 +108,9 @@ Future<String> importTextbook(
   TextbookSource src, {
   void Function(double progress)? onProgress,
 }) async {
+  if (src.kind == 'html312233') {
+    return _importHtmlSite(src, onProgress: onProgress);
+  }
   final docs = (await getApplicationDocumentsDirectory()).path;
   final libDir = Directory(subjectLibraryPath(docs));
   await libDir.create(recursive: true);
@@ -354,4 +377,240 @@ Future<void> _writeLicenseFile(
 $description
 ''';
   await File('$dirPath/教材来源说明.txt').writeAsString(content);
+}
+
+// ─────────────────────────────────────────────────────────────
+// 312233.xyz 教材库导入（HTML 章拆 → Markdown，公式 $...$ 原样保留）
+// 适配本文件已有的 isolate 化结构：_importHtmlSite 在主 isolate 走 HTTP
+// 逐章下载+解析（单章轻量，不塞 Isolate.run 以免跨 isolate 传巨大内容）。
+// ─────────────────────────────────────────────────────────────
+
+/// 导入 312233.xyz 全库：读 index.json → 遍历 books → 逐本解析目录页 →
+/// 逐章下载 HTML 转 Markdown → 落盘 subject_library/312233/<subject>/<book>/chN.md。
+Future<String> _importHtmlSite(
+  TextbookSource src, {
+  void Function(double progress)? onProgress,
+}) async {
+  final libDir = Directory(subjectLibraryPath(
+      (await getApplicationDocumentsDirectory()).path));
+  final base = (src.baseUrl ?? 'https://312233.xyz').replaceAll(RegExp(r'/$'), '');
+  final manifestUrl = src.manifestUrl ?? '$base/index.json';
+
+  final manifest =
+      jsonDecode(await _downloadText(manifestUrl)) as Map<String, dynamic>;
+  final books = (manifest['books'] as List?) ?? <dynamic>[];
+
+  var importedBooks = 0;
+  var importedChapters = 0;
+  final total = books.length;
+  for (var i = 0; i < total; i++) {
+    final book = books[i] as Map<String, dynamic>;
+    final title = (book['title'] as String?) ?? '未命名教材';
+    final subjectId = (book['subject'] as String?) ?? '综合';
+    final file = (book['file'] as String?) ?? '';
+    if (file.isEmpty) continue;
+    final segs = file.split('/');
+    final bookDirUrl = '$base/${segs.take(segs.length - 1).join('/')}';
+    onProgress?.call((i / (total == 0 ? 1 : total)) * 0.9);
+    final n = await _import312233Book(
+      bookDirUrl: bookDirUrl,
+      subjectId: subjectId,
+      title: title,
+      libDir: libDir,
+    );
+    if (n > 0) {
+      importedBooks++;
+      importedChapters += n;
+    }
+  }
+  onProgress?.call(1.0);
+  return '已导入 312233 教材库：$importedBooks 本 / $importedChapters 章 → '
+      'subject_library/312233';
+}
+
+/// 导入单本 312233 教材：解析目录页提取 chN.html 链接 → 逐章转 md 落盘。
+Future<int> _import312233Book({
+  required String bookDirUrl,
+  required String subjectId,
+  required String title,
+  required Directory libDir,
+}) async {
+  final indexHtml = await _downloadText('$bookDirUrl/index.html');
+  final links = _extractChapterLinks(indexHtml);
+  if (links.isEmpty) return 0;
+
+  final bookDir = Directory(
+      '${libDir.path}/312233/$subjectId/${_sanitizeDirName(title)}');
+  await bookDir.create(recursive: true);
+
+  var count = 0;
+  for (final ch in links) {
+    final html = await _downloadText('$bookDirUrl/$ch');
+    final md = _htmlToMarkdown(html);
+    if (md.trim().isEmpty) continue;
+    final out = File('${bookDir.path}/${ch.replaceAll('.html', '.md')}');
+    await out.writeAsString(md);
+    count++;
+  }
+  return count;
+}
+
+/// 解析目录页，提取 chN.html 章节链接（去重、按章号排序）。
+/// 注意：index.json 的 chapters 字段与实际不符，必须解析目录页 <a href>。
+List<String> _extractChapterLinks(String html) {
+  final links = <String>[];
+  final re = RegExp(r'href="(ch\d+\.html)"');
+  for (final m in re.allMatches(html)) {
+    final l = m.group(1)!;
+    if (!links.contains(l)) links.add(l);
+  }
+  int numOf(String s) =>
+      int.tryParse(RegExp(r'ch(\d+)\.html').firstMatch(s)?.group(1) ?? '0') ??
+      0;
+  links.sort((a, b) => numOf(a).compareTo(numOf(b)));
+  return links;
+}
+
+/// 下载文本（UTF-8 容错）。
+Future<String> _downloadText(String url) async {
+  final resp = await http
+      .get(_safeUri(url))
+      .timeout(const Duration(minutes: 2));
+  if (resp.statusCode != 200) {
+    throw StateError('下载失败 HTTP ${resp.statusCode}: $url');
+  }
+  return _decodeUtf8(resp.bodyBytes);
+}
+
+/// 对含中文路径段的 URL 做各段 percent-encode，避免 Uri.parse 抛异常。
+Uri _safeUri(String url) {
+  final u = Uri.parse(url);
+  return u.replace(
+    pathSegments: u.pathSegments.map((s) => Uri.encodeComponent(s)).toList(),
+  );
+}
+
+/// HTML → Markdown（去壳保文本，公式 $...$ 原样保留）。
+String _htmlToMarkdown(String html) {
+  final doc = parse(html);
+  final buf = StringBuffer();
+  final root = doc.body ?? doc.documentElement;
+  if (root != null) _walkHtml(root, buf);
+  return buf
+          .toString()
+          .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+          .trim() +
+      '\n';
+}
+
+/// 递归遍历 HTML 节点，转为 Markdown 文本。
+void _walkHtml(Node node, StringBuffer buf) {
+  if (node is Text) {
+    final t = node.text.trim();
+    if (t.isNotEmpty) buf.write(t);
+    return;
+  }
+  if (node is! Element) return;
+  final tag = node.localName;
+  if (tag == 'script' ||
+      tag == 'style' ||
+      tag == 'nav' ||
+      tag == 'header' ||
+      tag == 'footer' ||
+      tag == 'head') {
+    return;
+  }
+  switch (tag) {
+    case 'h1':
+      _block(buf, node, '# ');
+      break;
+    case 'h2':
+      _block(buf, node, '## ');
+      break;
+    case 'h3':
+      _block(buf, node, '### ');
+      break;
+    case 'h4':
+      _block(buf, node, '#### ');
+      break;
+    case 'h5':
+      _block(buf, node, '##### ');
+      break;
+    case 'h6':
+      _block(buf, node, '###### ');
+      break;
+    case 'p':
+    case 'div':
+      _block(buf, node, '');
+      break;
+    case 'li':
+      buf.writeln('- ${_inlineText(node)}');
+      break;
+    case 'blockquote':
+    case 'q':
+      _block(buf, node, '> ');
+      break;
+    case 'pre':
+      buf.writeln('```');
+      buf.writeln(_inlineText(node));
+      buf.writeln('```');
+      buf.writeln();
+      break;
+    case 'br':
+      buf.writeln();
+      break;
+    case 'table':
+      // 表格保留原始 HTML，交 MIX 的 HTML 渲染兜底。
+      buf.writeln(node.outerHtml);
+      buf.writeln();
+      break;
+    case 'a':
+      final href = node.attributes['href'] ?? '';
+      buf.write('[${_inlineText(node)}]($href)');
+      break;
+    case 'img':
+      final src = node.attributes['src'] ?? '';
+      final alt = node.attributes['alt'] ?? '';
+      buf.write('![$alt]($src)');
+      break;
+    case 'strong':
+    case 'b':
+      buf.write('**${_inlineText(node)}**');
+      break;
+    case 'em':
+    case 'i':
+      buf.write('*${_inlineText(node)}*');
+      break;
+    case 'code':
+      buf.write('`${_inlineText(node)}`');
+      break;
+    case 'hr':
+      buf.writeln('\n---\n');
+      break;
+    default:
+      for (final child in node.nodes) {
+        _walkHtml(child, buf);
+      }
+  }
+}
+
+/// 取元素内联纯文本（递归，去标签，保留公式 $...$ 等文本）。
+String _inlineText(Element e) {
+  final sb = StringBuffer();
+  for (final child in e.nodes) {
+    if (child is Text) {
+      sb.write(child.text);
+    } else if (child is Element) {
+      sb.write(_inlineText(child));
+    }
+  }
+  return sb.toString().trim();
+}
+
+/// 块级输出：先空行，再前缀 + 内容。
+void _block(StringBuffer buf, Element e, String prefix) {
+  buf.writeln();
+  buf.write(prefix);
+  buf.writeln(_inlineText(e));
+  buf.writeln();
 }

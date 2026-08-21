@@ -1,5 +1,7 @@
-// 公式占位符保护：在 markdown 解析之前把 LaTeX 公式（$...$ / $$...$$）
-// 提取成 PUA 私有区占位符，等 markdown 解析完成后在渲染层还原成公式节点。
+// 公式占位符保护：在 markdown 解析之前把 LaTeX 公式提取成 PUA 私有区占位符，
+// 支持四种分隔符：$...$（行内）、$$...$$（块级）、\(...\)（MathJax 行内）、
+// \[...\]（MathJax 块级）——后两者是 312233 教材库的 MathJax 约定。
+// 等 markdown 解析完成后在渲染层（custom_node.dart）还原成公式节点。
 //
 // 这是 Obsidian/MathJax 处理行内/块级公式的标准思路，能一次性解决：
 //   1. markdown 转义层破坏 LaTeX（\\、\{ 被吃反斜杠）；
@@ -21,6 +23,10 @@ const String _codeEnd = '\uE003'; // 代码占位符结束
 final RegExp _blockLatexReg = RegExp(r'\$\$[\s\S]+?\$\$');
 // 行内 $...$（单行、不含 $、排除 \$ 转义）
 final RegExp _inlineLatexReg = RegExp(r'(?<!\\)\$[^$\n]+\$');
+// 块级 \[...\]（MathJax 显示公式；312233 教材使用；非贪婪、允许跨行）
+final RegExp _blockParenReg = RegExp(r'\\\[[\s\S]+?\\\]');
+// 行内 \(...\)（MathJax 行内公式；312233 教材大量使用；非贪婪、允许跨行）
+final RegExp _inlineParenReg = RegExp(r'\\\([\s\S]+?\\\)');
 final RegExp _placeholderReg =
     RegExp('\uE000MXL([ib])([0-9a-f]+)\uE001');
 final RegExp _codePlaceholderReg = RegExp('\uE002\\d+\uE003');
@@ -48,9 +54,19 @@ String protectLatex(String input) {
     final s = m.group(0)!;
     return _encode(s.substring(2, s.length - 2), isInline: false);
   });
+  tmp = tmp.replaceAllMapped(_blockParenReg, (m) {
+    final s = m.group(0)!;
+    // 去掉首尾 \[ 与 \]
+    return _encode(s.substring(2, s.length - 2), isInline: false);
+  });
   tmp = tmp.replaceAllMapped(_inlineLatexReg, (m) {
     final s = m.group(0)!;
     return _encode(s.substring(1, s.length - 1), isInline: true);
+  });
+  tmp = tmp.replaceAllMapped(_inlineParenReg, (m) {
+    final s = m.group(0)!;
+    // 去掉首尾 \( 与 \)
+    return _encode(s.substring(2, s.length - 2), isInline: true);
   });
 
   // 3. 还原代码占位符，让 markdown 正常解析代码块/行内代码

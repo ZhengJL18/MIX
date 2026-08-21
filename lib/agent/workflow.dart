@@ -52,67 +52,20 @@ class AgentWorkflow {
 /// 内置工作流。
 const List<AgentWorkflow> builtinWorkflows = [
   AgentWorkflow(
-    id: 'coding',
-    name: '写代码',
-    description: '编程 agent：先计划后执行，git 管理，可跑终端',
-    systemPrompt: '你是 MIX 的编程助手，在 App 文档目录（工作目录）中工作。\n'
-        '工作流：\n'
-        '1) 动手前先探索：git_status/git_diff 看现状，read_file/search_files '
-        '了解相关代码，必要时看目录结构。\n'
-        '2) 优先用 patch 做小改动（比整体重写精准、省 token）；大改动先想清楚'
-        '影响面再写。\n'
-        '3) 改完用 git_diff 自查改动是否符合预期。\n'
-        '4) 遵守项目现有风格与约定，不引入无关改动。\n'
-        '5) 需要提交时用 git_add/git_commit，提交信息简洁说明"做了什么、为什么"。\n'
-        '用中文回答。',
-    toolsets: ['file', 'git', 'web', 'vision', 'delegate', 'moa', 'clarify', 'todo'],
-    planGate: true,
-    autoDelegate: true,
-    maxSteps: 150,
-  ),
-  AgentWorkflow(
-    id: 'research',
-    name: '研究',
-    description: '调研分析：搜索提取总结，不写代码',
-    systemPrompt: '你是 MIX 的研究助手。搜索→提取→总结，用 web_search 找'
-        '资料、web_extract 抓全文，关键信息存入 memory。不写代码。用中文。',
-    toolsets: ['web', 'memory', 'todo', 'clarify', 'delegate', 'moa'],
-    planGate: false,
-    autoDelegate: false,
-    maxSteps: 60,
-  ),
-  AgentWorkflow(
     id: 'daily',
     name: '通用助手',
-    description: '全能 agent：文件/终端/git/上网/记忆/技能',
-    systemPrompt: '你是 MIX，一个通用的 AI agent，具备文件读写、git、上网、'
+    description: '全能 agent：文件/终端/上网/记忆/技能',
+    systemPrompt: '你是 MIX，一个通用的 AI agent，具备文件读写、上网、'
         '记忆、技能等能力。可以操作 App 文档目录里的文件、改代码、查资料。'
         '对不确定的任务先探查再动手。用户要求出题/刷题/考考我时，用 '
         'study_quiz 工具呈现批量题卡（一次多题，可机械判分）。用中文回答。',
     toolsets: [
-      'file', 'web', 'memory', 'todo', 'skills', 'session_search', 'git',
+      'file', 'web', 'memory', 'todo', 'skills', 'session_search',
       'clarify', 'delegate', 'moa', 'cron', 'vision', 'notes', 'quiz',
     ],
     planGate: false,
     autoDelegate: true,
     maxSteps: 100,
-  ),
-  AgentWorkflow(
-    id: 'company',
-    name: '公司模式',
-    description: 'CEO 调度部门：多角色分工讨论处理复杂任务',
-    systemPrompt: '你是 MIX 公司的 CEO。你手下有多个部门，每个部门由'
-        '专业角色组成。收到任务时：1) 判断任务性质，选择合适部门；'
-        '2) 用 delegate_to_department 把任务派给部门；3) 汇总部门结果给用户。'
-        '任务复杂时可拆分成多个子任务分派给不同部门，或让部门内的子代理'
-        '继续下探。部门列表：\n',
-    toolsets: [
-      'file', 'web', 'memory', 'todo', 'skills', 'session_search', 'git',
-      'company', 'moa', 'delegate', 'clarify', 'vision', 'cron',
-    ],
-    planGate: false,
-    autoDelegate: true,
-    maxSteps: 200,
   ),
   AgentWorkflow(
     id: 'study',
