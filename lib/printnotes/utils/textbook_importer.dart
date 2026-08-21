@@ -92,7 +92,7 @@ const List<TextbookSource> kTextbookSources = [
   TextbookSource(
     name: '312233 教材库',
     subject: '综合',
-    description: '312233.xyz 全库教材（HTML 章拆 → 转 Markdown，公式 $...$ 原样保留）',
+    description: r'312233.xyz 全库教材（HTML 章拆 → 转 Markdown，公式 $...$ 原样保留）',
     license: '见各书（站点 312233.xyz）',
     tarballUrl: '',
     sourceUrl: 'https://312233.xyz',
