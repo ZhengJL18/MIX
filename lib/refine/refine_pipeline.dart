@@ -8,7 +8,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
-import '../llm/openai_llm.dart';
+import '../llm/llm_client.dart';
 import '../skills/skill_discovery.dart' show SkillDiscovery, SkillMeta;
 import '../tools/memory_tool.dart' show MemoryStore;
 import '../tools/skills_tool.dart' show createSkill, patchSkill;
@@ -58,7 +58,7 @@ class RefineProposal {
 
 /// 自进化管线。
 class RefinePipeline {
-  final OpenAiLlmClient llm;
+  final LlmClient llm;
   final TrajectoryStore trajectory;
   final MemoryStore? memory;
   final PromptNotesStore? promptNotes;

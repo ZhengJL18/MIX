@@ -15,6 +15,7 @@ library;
 
 import '../agent/agent.dart';
 import '../agent/company.dart';
+import '../llm/llm_client.dart';
 import '../llm/openai_llm.dart';
 import '../tools/model_tools.dart';
 
@@ -51,10 +52,10 @@ typedef SubAgentToolEvent = void Function(String name, String status);
 /// 多代理执行器：runSubAgent / runDepartment / runDiscussion。
 class MultiAgentService {
   /// 主模型客户端（主 agent 同款）。
-  final OpenAiLlmClient llm;
+  final LlmClient llm;
 
   /// 快模型客户端（分级委派：子任务优先用快/便宜模型）。null 则 fallback [llm]。
-  final OpenAiLlmClient? fastLlm;
+  final LlmClient? fastLlm;
 
   /// 取消检查点（主 agent cancel 时返回 true → 讨论/子代理早停）。
   final bool Function()? isCancelled;

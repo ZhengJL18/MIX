@@ -12,7 +12,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
-import '../llm/openai_llm.dart';
+import '../llm/llm_client.dart';
 import 'study_engine.dart';
 
 /// 出题阶段（供 UI 进度显示）。
@@ -40,7 +40,7 @@ class QuestionResult {
 
 /// 多阶段出题管线服务。
 class StudyQuestionService {
-  final OpenAiLlmClient llm;
+  final LlmClient llm;
   final StudyEngine engine;
   final String subjectLibraryDir; // subject_library 根目录。
   final String profilePath; // 0_profile.md 路径。

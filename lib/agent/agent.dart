@@ -21,7 +21,10 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../db/session_db.dart';
-import '../llm/openai_llm.dart';import '../tools/delegate_tool.dart' show currentAgentDepth;
+import 'claude_code/permissions.dart';
+import '../llm/llm_client.dart';
+import '../llm/openai_llm.dart';
+import '../tools/delegate_tool.dart' show currentAgentDepth;
 import '../services/services.dart';
 import '../tools/memory_manager.dart';
 import '../tools/model_tools.dart';
@@ -50,7 +53,7 @@ class ConversationResult {
 /// Agent 主循环。
 class MIXAgent {
   /// LLM 客户端。
-  final OpenAiLlmClient llm;
+  final LlmClient llm;
 
   /// 系统提示词（三层 system_prompt 的简化：stable 身份提示）。
   final String systemPrompt;
@@ -107,6 +110,15 @@ class MIXAgent {
   /// 读取的深度，避免并行子代理共享全局 [currentAgentDepth] 时互相覆盖。
   final int agentDepth;
 
+  /// Claude Code 权限模式。默认全放行以保持既有行为；
+  /// 设为 plan/acceptEdits/def 后由 [evaluatePermission] 拦截写与执行。
+  final PermissionMode permissionMode;
+
+  /// needsAsk 时的确认回调（返回 false = 用户拒绝）。
+  /// 未提供时视为同意（不阻塞无人值守场景）。
+  final Future<bool> Function(String toolName, PermissionDecision decision)?
+      onPermissionRequired;
+
   MIXAgent({
     required this.llm,
     required this.systemPrompt,
@@ -121,6 +133,8 @@ class MIXAgent {
     this.sessionDb,
     this.sessionId,
     this.agentDepth = 0,
+    this.permissionMode = PermissionMode.bypassPermissions,
+    this.onPermissionRequired,
   }) : iterationBudget = IterationBudget(maxIterations);
 
   /// 判断工具执行结果是否为错误（dispatch 失败约定：JSON 含非空 "error" 键，
@@ -663,8 +677,31 @@ class MIXAgent {
           final savedDepth = currentAgentDepth;
           currentAgentDepth = agentDepth;
           String result;
+          // ── 权限门（Claude Code PermissionRequest 的 Dart 版）──
+          // 在真正执行前判定：deny 直接回填错误结果，ask 走确认回调，
+          // 拒绝也回填 tool 结果（保持 assistant(tool_calls) 与 tool 结果配对）。
+          var permBlocked = false;
+          var permReason = '';
+          final perm = evaluatePermission(
+            mode: permissionMode,
+            toolName: tc.name,
+            input: args,
+          );
+          if (perm.isDenied) {
+            permBlocked = true;
+            permReason = perm.reason;
+          } else if (perm.needsAsk) {
+            final cb = onPermissionRequired;
+            final allowed = cb == null ? true : await cb(tc.name, perm);
+            if (!allowed) {
+              permBlocked = true;
+              permReason = '用户拒绝：${perm.reason}';
+            }
+          }
           try {
-            result = await handleFunctionCall(tc.name, args);
+            result = permBlocked
+                ? jsonEncode({'error': 'permission denied: $permReason'})
+                : await handleFunctionCall(tc.name, args);
           } catch (e, st) {
             // 工具执行异常也必须回填 tool 结果，否则 assistant(tool_calls)
             // 之后缺 tool 消息 → OpenAI 兼容后端 400。

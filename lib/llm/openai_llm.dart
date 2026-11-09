@@ -18,6 +18,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'llm_client.dart';
+
 /// 单次工具调用（OpenAI wire 格式聚合后）。
 class ToolCallData {
   String id;
@@ -100,7 +102,7 @@ class ToolResultMessage {
 }
 
 /// OpenAI 兼容 LLM 客户端：流式 chat.completions + tool_calls 聚合。
-class OpenAiLlmClient {
+class OpenAiLlmClient implements LlmClient {
   final LlmConfig config;
   final http.Client _client;
 

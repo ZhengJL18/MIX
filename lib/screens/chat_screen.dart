@@ -25,11 +25,15 @@ import 'package:mix/printnotes/ui/screens/home/main_screen.dart' as printnotes;
 import 'package:mix/printnotes/ui/screens/editors/notes/note_editor.dart' as printnotes;
 
 import 'package:mix/agent/agent.dart';
+import 'package:mix/bridge/bridge_chat_page.dart';
 import 'package:mix/agent/company.dart';
 import 'package:mix/agent/context_compressor.dart';
 import 'package:mix/agent/workflow.dart';
 import 'package:mix/config/mix_config.dart';
 import 'package:mix/db/session_db.dart';
+import 'package:mix/agent/claude_code/permissions.dart';
+import 'package:mix/agent/claude_code/prompt.dart';
+import 'package:mix/llm/llm_factory.dart';
 import 'package:mix/llm/openai_llm.dart';
 import 'package:mix/notes/notes_paths.dart';
 import 'package:mix/refine/edit_journal.dart';
@@ -715,16 +719,22 @@ class _ChatScreenState extends State<ChatScreen> {
       _running = true;
       _pendingPlan = null;
     });
-    final llm = OpenAiLlmClient(config: config.toLlmConfig(
-        effort: MIXConfig.effortValueToKey(await MIXConfig.loadEffort('plan'))));
+    final llm = buildLlmClient(
+        config: config,
+        effort:
+            MIXConfig.effortValueToKey(await MIXConfig.loadEffort('plan')));
     final planAgent = MIXAgent(
       llm: llm,
-      systemPrompt: '你是 MIX，处于计划模式。你现在只做探索和规划，'
+      systemPrompt: buildClaudeCodeSystemPrompt(
+            mode: PermissionMode.plan,
+          ) +
+          '\n\n# 当前工作流：计划模式\n你是 MIX，处于计划模式。你现在只做探索和规划，'
           '绝对不要修改/创建/删除任何文件，不要 git add/commit/push。'
           '可以用 read_file / search_files / git_status / git_diff 探索当前状态，'
           '然后输出一个清晰的执行计划：列出要做的步骤、每步做什么、'
           '涉及什么文件/命令。计划要具体、可执行。用中文。',
       toolDefinitionsProvider: () => _readOnlyTools(),
+      permissionMode: PermissionMode.plan,
       maxIterations: 15,
     );
     try {
@@ -781,8 +791,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _addAssistant('请先配置 AI');
       return;
     }
-    final llm = OpenAiLlmClient(
-        config: config.toLlmConfig(effort: _chatEffortKey));
+    final llm = buildLlmClient(config: config, effort: _chatEffortKey);
     final compressor = ContextCompressor(
       contextLength: 100000,
       summarizer: (middle) async {
@@ -1078,9 +1087,10 @@ class _ChatScreenState extends State<ChatScreen> {
       if (config == null) return '出题失败：AI 未配置';
       final dir = (await getApplicationDocumentsDirectory()).path;
       _studyQuestionService = StudyQuestionService(
-        llm: OpenAiLlmClient(config: config.toLlmConfig(
+        llm: buildLlmClient(
+            config: config,
             effort: MIXConfig.effortValueToKey(
-                await MIXConfig.loadEffort('study_question')))),
+                await MIXConfig.loadEffort('study_question'))),
         engine: engine,
         subjectLibraryDir: subjectLibraryPath(dir),
         profilePath: '${subjectLibraryPath(dir)}/0_profile.md',
@@ -1180,9 +1190,10 @@ class _ChatScreenState extends State<ChatScreen> {
         return;
       }
       refine = RefinePipeline(
-        llm: OpenAiLlmClient(config: config.toLlmConfig(
+        llm: buildLlmClient(
+            config: config,
             effort: MIXConfig.effortValueToKey(
-                await MIXConfig.loadEffort('refine')))),
+                await MIXConfig.loadEffort('refine'))),
         trajectory: traj,
         journal: journal,
         memory: Services.instance.memoryStore,
@@ -1249,10 +1260,11 @@ class _ChatScreenState extends State<ChatScreen> {
         await MIXConfig.loadEffort('fast_agent'));
     final fast = await MIXConfig.loadFastConfig(effort: fastEffort);
     _multiAgent = MultiAgentService(
-      llm: OpenAiLlmClient(config: config.toLlmConfig(
+      llm: buildLlmClient(
+          config: config,
           effort: MIXConfig.effortValueToKey(
-              await MIXConfig.loadEffort('agent')))),
-      fastLlm: fast != null ? OpenAiLlmClient(config: fast) : null,
+              await MIXConfig.loadEffort('agent'))),
+      fastLlm: fast != null ? buildLlmClientFromConfig(fast) : null,
       isCancelled: () => _activeAgent?.isCancelled ?? false,
     );
     return _multiAgent;
@@ -1666,7 +1678,7 @@ class _ChatScreenState extends State<ChatScreen> {
         final llmCfg =
             fast ?? (await MIXConfig.load())?.toLlmConfig(effort: null);
         if (llmCfg != null) {
-          final client = OpenAiLlmClient(config: llmCfg);
+          final client = buildLlmClientFromConfig(llmCfg);
           _memorySummarizer = MemorySummarizer(
             db: md,
             summarizeFn: (title, content) async {
@@ -1949,6 +1961,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const printnotes.MainPage()),
                   );
+                case 'bridge':
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const BridgeChatPage()),
+                  );
                 case 'settings':
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => SettingsScreen()),
@@ -1989,6 +2005,16 @@ class _ChatScreenState extends State<ChatScreen> {
                     Icon(Icons.menu_book_outlined, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
                     Text('笔记库'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'bridge',
+                child: Row(
+                  children: [
+                    Icon(Icons.hub, size: 18, color: context.appPalette.textSecondary),
+                    SizedBox(width: 8),
+                    Text('服务器桥接'),
                   ],
                 ),
               ),

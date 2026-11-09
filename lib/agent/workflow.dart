@@ -3,6 +3,9 @@
 /// 引擎（MIXAgent）是通用的，工作流是配置。换工作流 = 换配置对象。
 library;
 
+import 'claude_code/permissions.dart';
+import 'claude_code/prompt.dart';
+
 class AgentWorkflow {
   final String id;
   final String name;
@@ -24,12 +27,29 @@ class AgentWorkflow {
     this.maxSteps = 100,
   });
 
-  /// 完整的系统提示（人设 + 委派策略）。
+  /// 完整的系统提示（Claude Code 基础层 + 工作流人设 + 委派策略）。
+  ///
+  /// [withClaudeCodeBase] 为 true 时，前置 Claude Code 风格的基础层
+  /// （身份 / 环境 / 工具策略 / 执行纪律 / 输出规范），再叠加工作流专属人设 ——
+  /// 这样所有工作流共享同一套底座纪律，只换角色与工具箱。
   String buildSystemPrompt({
     String contextBlock = '',
     String skillBlock = '',
+    String cwd = '',
+    List<String> toolNames = const [],
+    PermissionMode mode = PermissionMode.def,
+    bool withClaudeCodeBase = true,
   }) {
-    var prompt = systemPrompt;
+    final base = withClaudeCodeBase
+        ? buildClaudeCodeSystemPrompt(
+            cwd: cwd,
+            toolNames: toolNames,
+            mode: mode,
+          )
+        : '';
+    var prompt = base.isEmpty
+        ? systemPrompt
+        : '$base\n\n# 当前工作流：$name\n$systemPrompt';
     if (autoDelegate) {
       prompt += '\n\n遇到机械性、可独立的小任务（改一行代码、简单文件操作、'
           '格式化、简单验证）时，用 delegate_task 委派给快速子代理处理，'

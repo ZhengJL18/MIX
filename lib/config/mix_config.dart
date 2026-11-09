@@ -159,6 +159,15 @@ class MIXConfig {
     await prefs.setString('mix_base_url', baseUrl);
   }
 
+  /// 当前 provider 的 wire 传输协议（决定用 OpenAI 兼容还是 Anthropic 客户端）。
+  Transport get transport =>
+      resolveProviderFull(vendorId)?.transport ?? Transport.openAiChat;
+
+  /// 生效的接口地址（自定义优先，否则 provider 预设）。
+  String get effectiveBaseUrl => baseUrl.isNotEmpty
+      ? baseUrl
+      : (resolveProviderFull(vendorId)?.baseUrl ?? '');
+
   /// 转换成 LlmConfig。
   /// [effort] 可选思考强度覆盖：内部任务（出题/refine/子代理/画像）传
   /// 'medium' 固定中档，不随用户聊天时的选择变化；省略则用 [reasoningEffort]。
