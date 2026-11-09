@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Claude light canvas. Night override lives in values-night. -->
+    <color name="claude_canvas">#FFFFFF</color>
+    <!-- Launcher plate. Not pure black: the Claude dark canvas. -->
+    <color name="claude_icon_bg">#191919</color>
+</resources>

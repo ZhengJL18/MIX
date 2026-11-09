@@ -11,6 +11,7 @@ import 'bridge_config.dart';
 import 'bridge_events.dart';
 import 'bridge_session_controller.dart';
 import 'bridge_settings_page.dart';
+import 'package:mix/theme/theme_ext.dart';
 import 'package:mix/widgets/markdown_math.dart';
 
 class BridgeChatPage extends StatefulWidget {
@@ -60,7 +61,7 @@ class _BridgeChatPageState extends State<BridgeChatPage> {
       final session = await _client!.createSession(
         harness: cfg.harness,
         model: cfg.model.isEmpty ? null : cfg.model,
-        title: 'MIX bridge',
+        title: 'Claude bridge',
       );
       if (!mounted) return;
       final ctl = BridgeSessionController(client: _client!, sessionId: session.id);
@@ -171,20 +172,27 @@ class _BridgeChatPageState extends State<BridgeChatPage> {
 
   Widget _bubble(BridgeBubble b) {
     final scheme = Theme.of(context).colorScheme;
+    final palette = context.appPalette;
     final isUser = b.isUser;
     final isSystem = b.isSystem || b.error != null;
     final bg = isUser
-        ? scheme.primaryContainer
+        ? palette.bubble
         : isSystem
             ? scheme.errorContainer.withValues(alpha: 0.35)
-            : scheme.surfaceContainerHighest;
+            : Colors.transparent;
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.86),
-        decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(12)),
+        padding: EdgeInsets.symmetric(
+          horizontal: isUser ? 14 : 2,
+          vertical: isUser ? 10 : 4,
+        ),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * (isUser ? 0.82 : 0.96)),
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(isUser ? 16 : 8),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -268,16 +276,22 @@ class _BridgeChatPageState extends State<BridgeChatPage> {
                 maxLines: 4,
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => _send(),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: '发消息给服务器上的 harness',
-                  border: OutlineInputBorder(),
+                  filled: true,
+                  fillColor: context.appPalette.inset,
                   isDense: true,
                 ),
               ),
             ),
             const SizedBox(width: 6),
             IconButton.filled(
-              icon: const Icon(Icons.send),
+              style: IconButton.styleFrom(
+                backgroundColor: context.appPalette.primary,
+                foregroundColor: context.appPalette.onPrimary,
+                shape: const CircleBorder(),
+              ),
+              icon: const Icon(Icons.arrow_upward_rounded),
               onPressed: _send,
             ),
           ],

@@ -350,6 +350,7 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final _controller = TextEditingController();
+  final _composerFocus = FocusNode();
   final _scrollController = ScrollController();
   final List<_ChatMessage> _messages = [];
   // 工具名 → 当前 running 卡片的消息索引（done 时更新而非新增）。
@@ -455,6 +456,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _scrollController.removeListener(_onChatScroll);
     _scrollController.dispose();
+    _composerFocus.dispose();
     _controller.dispose();
     _clarifyInput.dispose();
     super.dispose();
@@ -1946,7 +1948,18 @@ class _ChatScreenState extends State<ChatScreen> {
         autofocus: true,
         child: Scaffold(
       appBar: AppBar(
-        title: const Text('MIX'),
+        titleSpacing: 16,
+        title: const Row(
+          children: [
+            Image(
+              image: AssetImage('assets/brand/claude_mark.png'),
+              width: 22,
+              height: 22,
+            ),
+            SizedBox(width: 8),
+            Text('Claude'),
+          ],
+        ),
         actions: [
           // 更多菜单：模式/计划/思考强度/内容/系统（二级入口收纳，避免主界面臃肿）。
           PopupMenuButton<String>(
@@ -2044,12 +2057,38 @@ class _ChatScreenState extends State<ChatScreen> {
                 if (_messages.isEmpty)
                   Center(
                     child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 32),
-                      child: Text(
-                        'MIX —— 沙盒内的 agent。\n输入任务试试，'
-                        '比如：在 notes 目录写一首关于安卓的俳句并读给我看',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: context.appPalette.textSecondary),
+                      padding: const EdgeInsets.symmetric(horizontal: 36),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Image(
+                            image: AssetImage('assets/brand/claude_mark.png'),
+                            width: 40,
+                            height: 40,
+                          ),
+                          const SizedBox(height: 14),
+                          Text(
+                            'Claude',
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineSmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.3,
+                                  color: context.appPalette.textPrimary,
+                                ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '沙盒里的 agent。输入任务试试，'
+                            '比如：在 notes 目录写一首关于安卓的俳句并读给我看',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: context.appPalette.textSecondary,
+                              height: 1.45,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   )
@@ -2083,30 +2122,73 @@ class _ChatScreenState extends State<ChatScreen> {
             const LinearProgressIndicator(minHeight: 2),
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.all(8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _controller,
-                      enabled: !_running,
-                      decoration: const InputDecoration(
-                        hintText: '输入任务…',
-                        border: OutlineInputBorder(),
-                        isDense: true,
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+              child: ListenableBuilder(
+                listenable: _composerFocus,
+                builder: (context, _) {
+                  final p = context.appPalette;
+                  final focused = _composerFocus.hasFocus;
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 120),
+                    curve: Curves.easeOut,
+                    padding: const EdgeInsets.fromLTRB(14, 2, 4, 2),
+                    decoration: BoxDecoration(
+                      color: p.inset,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: focused ? p.primary : p.border,
+                        width: focused ? 1.5 : 1,
                       ),
-                      onSubmitted: (_) => _send(),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton.filled(
-                    icon: _running
-                        ? const Icon(Icons.stop)
-                        : const Icon(Icons.send),
-                    onPressed: _running ? _stop : _send,
-                    tooltip: _running ? '停止生成' : '发送',
-                  ),
-                ],
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _controller,
+                            focusNode: _composerFocus,
+                            enabled: !_running,
+                            minLines: 1,
+                            maxLines: 5,
+                            style: TextStyle(
+                              color: p.textPrimary,
+                              height: 1.35,
+                            ),
+                            decoration: InputDecoration(
+                              hintText: '输入任务…',
+                              hintStyle: TextStyle(color: p.inkTertiary),
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              disabledBorder: InputBorder.none,
+                              filled: false,
+                              isDense: true,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            onSubmitted: (_) => _send(),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: IconButton.filled(
+                            style: IconButton.styleFrom(
+                              backgroundColor: p.primary,
+                              foregroundColor: p.onPrimary,
+                              disabledBackgroundColor: p.hover,
+                              shape: const CircleBorder(),
+                            ),
+                            icon: Icon(_running
+                                ? Icons.stop_rounded
+                                : Icons.arrow_upward_rounded),
+                            onPressed: _running ? _stop : _send,
+                            tooltip: _running ? '停止生成' : '发送',
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
             ),
           ),
@@ -2262,9 +2344,8 @@ class _ChatScreenState extends State<ChatScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
-        border: Border.all(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+        color: context.appPalette.canvas,
+        border: Border.all(color: context.appPalette.border),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -2276,10 +2357,10 @@ class _ChatScreenState extends State<ChatScreen> {
               Icon(Icons.help_outline,
                   size: 16, color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 6),
-              Text('MIX 想确认一下',
+              Text('Claude 想确认一下',
                   style: TextStyle(
                     fontSize: 12,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: context.appPalette.textPrimary,
                     fontWeight: FontWeight.w600,
                   )),
             ],
@@ -2357,9 +2438,8 @@ class _ChatScreenState extends State<ChatScreen> {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.05),
-        border: Border.all(
-            color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3)),
+        color: context.appPalette.canvas,
+        border: Border.all(color: context.appPalette.border),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -2374,7 +2454,7 @@ class _ChatScreenState extends State<ChatScreen> {
               Text('发现新版本 v${latest.version}',
                   style: TextStyle(
                     fontSize: 13,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: context.appPalette.textPrimary,
                     fontWeight: FontWeight.w600,
                   )),
             ],
@@ -2519,7 +2599,7 @@ class _ChatScreenState extends State<ChatScreen> {
               isCorrect ? '✅ 正确！' : '❌ 答错了，正确答案是 $answer',
               style: TextStyle(
                 color: isCorrect
-                    ? Theme.of(context).colorScheme.primary
+                    ? context.appPalette.success
                     : Theme.of(context).colorScheme.error,
                 fontWeight: FontWeight.w600,
               ),
@@ -2623,7 +2703,7 @@ class _ChatScreenState extends State<ChatScreen> {
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Theme.of(context).colorScheme.surface,
-          border: Border.all(color: context.appPalette.primary, width: 1),
+          border: Border.all(color: context.appPalette.border),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Column(
@@ -2648,7 +2728,7 @@ class _ChatScreenState extends State<ChatScreen> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        border: Border.all(color: context.appPalette.primary, width: 1.2),
+        border: Border.all(color: context.appPalette.border),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -2708,42 +2788,51 @@ class _ChatScreenState extends State<ChatScreen> {
         return Align(
           alignment: Alignment.centerRight,
           child: Container(
-            margin: const EdgeInsets.only(bottom: 8),
+            margin: const EdgeInsets.only(bottom: 12, left: 48),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(14),
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.sizeOf(context).width * 0.82,
             ),
-            child: Text(m.text ?? ''),
+            decoration: BoxDecoration(
+              color: context.appPalette.bubble,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Text(
+              m.text ?? '',
+              style: TextStyle(
+                color: context.appPalette.textPrimary,
+                height: 1.4,
+              ),
+            ),
           ),
         );
       case 'reasoning':
-        // 思考中块（灰色斜体，reasoner 模型推理过程实时显示）。
+        // 思考中块（暖灰斜体，reasoner 模型推理过程实时显示）。
         return Align(
           alignment: Alignment.centerLeft,
           child: Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest
-                  .withValues(alpha: 0.6),
-              borderRadius: BorderRadius.circular(10),
+              color: context.appPalette.sidebar,
+              borderRadius: BorderRadius.circular(12),
             ),
             constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.9,
+              maxWidth: MediaQuery.sizeOf(context).width * 0.92,
             ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(Icons.psychology_outlined,
-                    size: 14, color: Theme.of(context).colorScheme.outline),
+                    size: 14, color: context.appPalette.inkTertiary),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
                     (m.text ?? '').isEmpty ? '思考中…' : m.text!,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         fontStyle: FontStyle.italic,
-                        color: Theme.of(context).colorScheme.outline),
+                        color: context.appPalette.inkTertiary,
+                        height: 1.4),
                   ),
                 ),
               ],
@@ -2762,47 +2851,23 @@ class _ChatScreenState extends State<ChatScreen> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 6),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.85,
-                  ),
-                  child: MIXMarkdown(
-                    data: prose,
-                    selectable: true,
-                  ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8, right: 8),
+                child: MIXMarkdown(
+                  data: prose,
+                  selectable: true,
                 ),
               ),
               _buildStudyCard(qJson),
             ],
           );
         }
-        return Align(
-          alignment: Alignment.centerLeft,
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.of(context).size.width * 0.85,
-            ),
-            child: MIXMarkdown(
-              data: m.text ?? '',
-              selectable: true,
-            ),
+        // 助手正文直接落在画布上，不再套一层灰气泡。
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12, right: 4),
+          child: MIXMarkdown(
+            data: m.text ?? '',
+            selectable: true,
           ),
         );
       case 'clarify':
@@ -2868,7 +2933,7 @@ class _ChatScreenState extends State<ChatScreen> {
               Row(
                 children: [
                   Icon(Icons.record_voice_over,
-                      size: 16, color: context.appPalette.primary),
+                      size: 16, color: context.appPalette.textSecondary),
                   const SizedBox(width: 6),
                   Text('🗣️ MoA 讨论完成（${m.discussionTotalRounds} 轮）',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -2879,7 +2944,7 @@ class _ChatScreenState extends State<ChatScreen> {
               for (var i = 0; i < m.discussionPerspectives.length; i++) ...[
                 Text('Reference ${i + 1} — ${m.discussionPerspectives[i].$1}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: context.appPalette.primary,
+                        color: context.appPalette.textPrimary,
                         fontWeight: FontWeight.w600)),
                 const SizedBox(height: 2),
                 Text(m.discussionPerspectives[i].$2,
@@ -2904,7 +2969,7 @@ class _ChatScreenState extends State<ChatScreen> {
             padding: EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
-              border: Border.all(color: context.appPalette.primary, width: 1.2),
+              border: Border.all(color: context.appPalette.border),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Column(
@@ -2959,7 +3024,7 @@ class _ChatScreenState extends State<ChatScreen> {
             margin: const EdgeInsets.only(bottom: 8),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
-              border: Border.all(color: context.appPalette.primary, width: 1),
+              border: Border.all(color: context.appPalette.border),
               borderRadius: BorderRadius.circular(8),
             ),
             child: ListTile(
@@ -3000,7 +3065,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 )
               else
                 Icon(Icons.check_circle,
-                    size: 14, color: Theme.of(context).colorScheme.primary),
+                    size: 14, color: context.appPalette.success),
               const SizedBox(width: 8),
               Text(
                 '🔧 ${m.toolName} ${running ? '运行中…' : '完成'}',
@@ -3056,7 +3121,7 @@ class _QuizCardsViewState extends State<_QuizCardsView> {
               style: Theme.of(context)
                   .textTheme
                   .labelMedium
-                  ?.copyWith(color: Theme.of(context).colorScheme.primary),
+                  ?.copyWith(color: context.appPalette.textPrimary),
             ),
           ),
         ],
@@ -3263,7 +3328,7 @@ class _QuizCardsViewState extends State<_QuizCardsView> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
-        border: Border.all(color: Theme.of(context).colorScheme.primary),
+        border: Border.all(color: context.appPalette.border),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -3284,7 +3349,7 @@ class _QuizCardsViewState extends State<_QuizCardsView> {
             Text('错题：${wrongIdx.map((i) => '第 ${i + 1} 题').join('、')}',
                 style: Theme.of(context).textTheme.bodyMedium),
           const SizedBox(height: 12),
-          Text('MIX 正在讲解错题…', style: Theme.of(context).textTheme.bodySmall),
+          Text('Claude 正在讲解错题…', style: Theme.of(context).textTheme.bodySmall),
         ],
       ),
     );
@@ -3542,9 +3607,11 @@ class _ScrollToBottomButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.9),
-      shape: const CircleBorder(),
-      elevation: 3,
+      color: context.appPalette.sidebar,
+      shape: CircleBorder(
+        side: BorderSide(color: context.appPalette.border),
+      ),
+      elevation: 0,
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onTap,

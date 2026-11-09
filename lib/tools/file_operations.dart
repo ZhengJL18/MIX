@@ -1699,7 +1699,7 @@ class LocalFileOperations implements FileOperations {
       if (absPath != absCwd && !p.isWithin(absCwd, absPath)) {
         return SearchResult(
           error: "搜索路径 '$path' 超出沙盒范围（$absCwd）。"
-              'MIX 默认只搜索 App 自己的文件空间。'
+              '默认只搜索 App 自己的文件空间。'
               '如需访问公共目录，请在设置中授予「所有文件访问」权限。',
           totalCount: 0,
         );
