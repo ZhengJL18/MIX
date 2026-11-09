@@ -24,6 +24,9 @@ class BridgeBubble {
   bool streaming;
   String? error;
 
+  /// 思考块在正文到来或回合结束后收起，点按可再展开。
+  bool collapsed;
+
   /// 本地乐观插入、等待服务端 user.message 事件认领的消息。
   bool optimistic;
 
@@ -34,6 +37,7 @@ class BridgeBubble {
     List<BridgeToolCall>? tools,
     this.streaming = false,
     this.error,
+    this.collapsed = false,
     this.optimistic = false,
   }) : tools = tools ?? <BridgeToolCall>[];
 
@@ -80,7 +84,16 @@ class BridgeSessionController extends ChangeNotifier {
   BridgeBubble? _openThinking;
   bool _disposed = false;
 
+  /// 从发出消息到 turn.end / error。停止按钮看这个，而不是连接是否还活着。
+  bool turnActive = false;
+
   bool get isBusy => status == BridgeStatus.connecting || status == BridgeStatus.live;
+
+  /// 展开或收起一条思考块。
+  void toggleThinking(BridgeBubble bubble) {
+    bubble.collapsed = !bubble.collapsed;
+    notifyListeners();
+  }
 
   /// 启动：从持久化游标续传，然后把新事件一路追平。
   Future<void> start() async {
@@ -100,7 +113,7 @@ class BridgeSessionController extends ChangeNotifier {
           onConnected: () => _setStatus(BridgeStatus.live),
         )
         .listen(
-          _onEvent,
+          applyEvent,
           onError: (Object e) {
             lastError = '$e';
             _setStatus(BridgeStatus.failed);
@@ -122,12 +135,14 @@ class BridgeSessionController extends ChangeNotifier {
       ts: DateTime.now().millisecondsSinceEpoch,
       optimistic: true,
     ));
+    _collapseThinking();
     _openAssistant = null;
-    _openThinking = null;
+    turnActive = true;
     notifyListeners();
     try {
       await client.sendMessage(sessionId, trimmed);
     } catch (e) {
+      turnActive = false;
       lastError = '$e';
       messages.add(BridgeBubble(
         role: 'system',
@@ -144,8 +159,11 @@ class BridgeSessionController extends ChangeNotifier {
       await client.interrupt(sessionId);
     } catch (e) {
       lastError = '$e';
-      notifyListeners();
     }
+    turnActive = false;
+    _collapseThinking();
+    _closeOpen();
+    notifyListeners();
   }
 
   /// 用服务端投影覆盖本地消息（冷启动时比逐条 replay 更快）。
@@ -160,6 +178,7 @@ class BridgeSessionController extends ChangeNotifier {
               role: m.role,
               text: m.text,
               ts: m.ts,
+              collapsed: m.role == 'thinking',
               tools: [
                 for (final t in (m.meta['tools'] is List ? m.meta['tools'] as List : const []))
                   if (t is Map)
@@ -180,7 +199,8 @@ class BridgeSessionController extends ChangeNotifier {
   }
 
   // ── 事件 → 状态 ────────────────────────────────────────────────────────
-  void _onEvent(BridgeEvent ev) {
+  /// 把一条 harness 事件折进 [messages]。单测直接调它，不走网络。
+  void applyEvent(BridgeEvent ev) {
     if (_disposed) return;
     if (status != BridgeStatus.live) _setStatus(BridgeStatus.live);
     final now = ev.ts > 0 ? ev.ts : DateTime.now().millisecondsSinceEpoch;
@@ -198,20 +218,26 @@ class BridgeSessionController extends ChangeNotifier {
         break;
 
       case 'turn.start':
+        _collapseThinking();
         _openAssistant = null;
-        _openThinking = null;
+        turnActive = true;
         break;
 
       case 'text.delta':
+        // 正文一到就把思考收起，避免推理全文一直摊在对话里。
+        _collapseThinking();
         final a = _openAssistant ??= _newBubble('assistant', now);
         a.text += ev.text;
         a.streaming = true;
+        turnActive = true;
         break;
 
       case 'think.delta':
         final t = _openThinking ??= _newBubble('thinking', now);
+        t.collapsed = false;
         t.text += ev.text;
         t.streaming = true;
+        turnActive = true;
         break;
 
       case 'tool.start':
@@ -236,7 +262,9 @@ class BridgeSessionController extends ChangeNotifier {
         break;
 
       case 'turn.end':
+        _collapseThinking();
         _closeOpen();
+        turnActive = false;
         final usage = ev.usage;
         if (usage != null) {
           messages.add(BridgeBubble(
@@ -249,7 +277,9 @@ class BridgeSessionController extends ChangeNotifier {
         break;
 
       case 'error':
+        _collapseThinking();
         _closeOpen();
+        turnActive = false;
         messages.add(BridgeBubble(
           role: 'system',
           text: '出错：${ev.errorMessage}',
@@ -276,6 +306,14 @@ class BridgeSessionController extends ChangeNotifier {
     final b = BridgeBubble(role: role, ts: ts);
     messages.add(b);
     return b;
+  }
+
+  void _collapseThinking() {
+    final t = _openThinking;
+    if (t == null) return;
+    t.streaming = false;
+    t.collapsed = true;
+    _openThinking = null;
   }
 
   void _closeOpen() {

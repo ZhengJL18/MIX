@@ -142,8 +142,8 @@ class _BridgeSettingsPageState extends State<BridgeSettingsPage> {
                   controller: _baseUrl,
                   decoration: const InputDecoration(
                     labelText: '服务器地址',
-                    hintText: 'https://harness.example.com 或 http://127.0.0.1:8787',
-                    helperText: '只填到域名/端口，不要带 /v1',
+                    hintText: BridgeConfig.defaultBaseUrl,
+                    helperText: '留空则用 https://harness.312233.xyz。不要带 /v1',
                     border: OutlineInputBorder(),
                   ),
                   keyboardType: TextInputType.url,

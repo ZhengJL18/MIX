@@ -35,7 +35,7 @@ graph LR
 ## 快速开始
 
 ### 直接用（推荐）
-从 [Releases](https://github.com/ZhengJL18/MIX/releases) 下载最新 APK，装到 Android。首次打开填一个 LLM Key（DeepSeek / 通义 / OpenAI / Kimi / 智谱 / Gemini …任选）即可开聊。
+从 [Releases](https://github.com/ZhengJL18/MIX/releases) 下载最新 APK，装到 Android。主聊天默认连云端 harness（`https://harness.312233.xyz`）：在设置里填 token 即可开聊，不用再进二级菜单。没填 token 时仍走手机上的本地 agent，那时需要一个 LLM Key。
 
 ### 自己构建
 ```bash
@@ -45,7 +45,7 @@ flutter build apk --release
 需要 Flutter `^3.12.2`。
 
 ## 怎么用
-打开就是聊天页。顶部菜单：
+打开就是聊天页，配好云端 token 后消息直接发给 harness（思考过程与 Markdown 回复都在这一页）。顶部菜单：
 - **切工作流**：`coding` / `research` / `daily` / `company` / `study` —— 切换 Agent 的人设与工具集
 - **进笔记库**：Obsidian 式 Markdown 笔记
 - **设置**：模型、Claude 浅色 / 深色、「所有文件访问」权限
