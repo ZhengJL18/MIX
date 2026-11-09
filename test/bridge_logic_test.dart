@@ -3,9 +3,13 @@
 // 这些不需要网络也不需要 UI，CI 的 `flutter test` 直接能跑；
 // 网络路径（SSE 重连、幂等）由服务端的 test/resume-stress.mjs 覆盖。
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:mix/bridge/bridge_client.dart';
+import 'package:mix/bridge/bridge_config.dart';
 import 'package:mix/bridge/bridge_events.dart';
+import 'package:mix/bridge/bridge_session_controller.dart';
 import 'package:mix/bridge/bridge_store.dart';
 
 void main() {
@@ -174,4 +178,102 @@ void main() {
       expect(await BridgeCursorStore.load('s_c'), 11);
     });
   });
+
+  group('BridgeConfig', () {
+    test('没保存地址时用 harness.312233.xyz，token 仍必填', () async {
+      SharedPreferences.setMockInitialValues({});
+      final cfg = await BridgeConfig.load();
+      expect(cfg.baseUrl, 'https://harness.312233.xyz');
+      expect(cfg.isComplete, isFalse);
+
+      SharedPreferences.setMockInitialValues({'bridge_token': 'secret'});
+      final withToken = await BridgeConfig.load();
+      expect(withToken.baseUrl, BridgeConfig.defaultBaseUrl);
+      expect(withToken.isComplete, isTrue);
+      expect(withToken.token, 'secret');
+    });
+
+    test('自定义地址去掉末尾斜杠', () async {
+      SharedPreferences.setMockInitialValues({
+        'bridge_base_url': 'http://127.0.0.1:8787/',
+        'bridge_token': 't',
+      });
+      final cfg = await BridgeConfig.load();
+      expect(cfg.baseUrl, 'http://127.0.0.1:8787');
+    });
+
+    test('会话 id 可保存和清除', () async {
+      SharedPreferences.setMockInitialValues({});
+      expect(await BridgeConfig.loadSessionId(), isNull);
+      await BridgeConfig.saveSessionId('sess_1');
+      expect(await BridgeConfig.loadSessionId(), 'sess_1');
+      await BridgeConfig.clearSessionId();
+      expect(await BridgeConfig.loadSessionId(), isNull);
+    });
+  });
+
+  group('BridgeSessionController.applyEvent', () {
+    late BridgeSessionController ctl;
+
+    setUp(() {
+      ctl = BridgeSessionController(
+        client: BridgeClient(
+          baseUrl: 'https://harness.312233.xyz',
+          token: 't',
+          client: _NoNetwork(),
+        ),
+        sessionId: 's',
+      );
+    });
+
+    tearDown(() => ctl.dispose());
+
+    BridgeEvent ev(int seq, String type, Map<String, dynamic> data) {
+      return BridgeEvent.fromJson({'seq': seq, 'type': type, 'data': data});
+    }
+
+    test('think.delta 展开思考，text.delta 收起并用正文接上', () {
+      ctl.applyEvent(ev(1, 'think.delta', {'text': '想'}));
+      ctl.applyEvent(ev(2, 'think.delta', {'text': '一下'}));
+      expect(ctl.messages, hasLength(1));
+      expect(ctl.messages.single.isThinking, isTrue);
+      expect(ctl.messages.single.streaming, isTrue);
+      expect(ctl.messages.single.collapsed, isFalse);
+      expect(ctl.messages.single.text, '想一下');
+
+      ctl.applyEvent(ev(3, 'text.delta', {'text': '你好'}));
+      expect(ctl.messages.first.collapsed, isTrue);
+      expect(ctl.messages.first.streaming, isFalse);
+      expect(ctl.messages.last.isAssistant, isTrue);
+      expect(ctl.messages.last.text, '你好');
+      expect(ctl.messages.last.streaming, isTrue);
+      expect(ctl.turnActive, isTrue);
+    });
+
+    test('tool.start / tool.end 挂在助手消息上，turn.end 结束回合', () {
+      ctl.applyEvent(ev(1, 'text.delta', {'text': '看文件'}));
+      ctl.applyEvent(ev(2, 'tool.start', {
+        'name': 'read_file',
+        'call': 'c1',
+        'input': {'path': 'a.md'},
+      }));
+      expect(ctl.messages.single.tools.single.running, isTrue);
+      expect(ctl.messages.single.tools.single.name, 'read_file');
+
+      ctl.applyEvent(ev(3, 'tool.end', {'call': 'c1', 'name': 'read_file', 'ok': true}));
+      expect(ctl.messages.single.tools.single.running, isFalse);
+      expect(ctl.messages.single.tools.single.ok, isTrue);
+
+      ctl.applyEvent(ev(4, 'turn.end', {'stop': 'end_turn'}));
+      expect(ctl.messages.single.streaming, isFalse);
+      expect(ctl.turnActive, isFalse);
+    });
+  });
+}
+
+class _NoNetwork extends http.BaseClient {
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    throw StateError('test client must not hit the network');
+  }
 }

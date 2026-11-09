@@ -6,6 +6,8 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../bridge/bridge_chat_page.dart';
+import '../bridge/bridge_settings_page.dart';
 import '../config/mix_config.dart';
 import '../services/storage_permission.dart';
 import 'department_screen.dart';
@@ -223,6 +225,36 @@ class _SettingsScreenState extends State<SettingsScreen>
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        Card(
+          child: Column(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.cloud_outlined),
+                title: const Text('云端对话'),
+                subtitle: const Text('主聊天走 harness。默认 https://harness.312233.xyz，token 存在本机。'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const BridgeSettingsPage()),
+                  );
+                },
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.bug_report_outlined),
+                title: const Text('桥接调试'),
+                subtitle: const Text('单独的验收页，日常对话不用从这里进'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const BridgeChatPage()),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
         // vendor 下拉。
         DropdownButtonFormField<String>(
           initialValue: _vendor,

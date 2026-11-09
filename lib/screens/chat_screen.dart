@@ -25,7 +25,12 @@ import 'package:mix/printnotes/ui/screens/home/main_screen.dart' as printnotes;
 import 'package:mix/printnotes/ui/screens/editors/notes/note_editor.dart' as printnotes;
 
 import 'package:mix/agent/agent.dart';
-import 'package:mix/bridge/bridge_chat_page.dart';
+import 'package:mix/bridge/bridge_client.dart';
+import 'package:mix/bridge/bridge_config.dart';
+import 'package:mix/bridge/bridge_events.dart';
+import 'package:mix/bridge/bridge_session_controller.dart';
+import 'package:mix/bridge/bridge_settings_page.dart';
+import 'package:mix/bridge/bridge_transcript.dart';
 import 'package:mix/agent/company.dart';
 import 'package:mix/agent/context_compressor.dart';
 import 'package:mix/agent/workflow.dart';
@@ -422,11 +427,25 @@ class _ChatScreenState extends State<ChatScreen> {
   // 思考强度：聊天回答流程用滑块值(0-100)，各内部流程在设置里独立配置。
   int _chatEffort = 50;
 
+  /// 云端 harness 是主对话。配了 token 就走这里；没配才退回本地 agent。
+  BridgeClient? _bridgeClient;
+  BridgeSessionController? _bridge;
+  bool _bridgeChecking = true;
+  bool _bridgeWanted = false;
+  String? _bridgeError;
+  Future<void>? _bridgeBootFuture;
+  int _bridgeGen = 0;
+  bool _bridgeSendLock = false;
+
   /// 聊天流程的 reasoning_effort 字符串（构造 LLM 时用）。
   String get _chatEffortKey => MIXConfig.effortValueToKey(_chatEffort);
 
   /// 停止当前生成（ESC / 停止按钮）。
   void _stop() {
+    if (_bridgeWanted) {
+      unawaited(_bridge?.interrupt());
+      return;
+    }
     _activeAgent?.cancel();
     // 停在思考阶段（只流了 reasoning 无 content）时，移除残留的思考块，
     // 否则灰色"思考中…"永久卡在对话里。
@@ -452,8 +471,161 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  void _onBridge() {
+    if (!mounted) return;
+    setState(() {});
+    _scrollToBottom();
+  }
+
+  void _disposeBridge() {
+    final ctl = _bridge;
+    final client = _bridgeClient;
+    _bridge = null;
+    _bridgeClient = null;
+    if (ctl != null) {
+      ctl.removeListener(_onBridge);
+      ctl.dispose();
+    }
+    client?.close();
+  }
+
+  Future<BridgeSession> _createBridgeSession(BridgeClient client, BridgeConfig cfg) {
+    return client.createSession(
+      harness: cfg.harness.isEmpty ? 'claude' : cfg.harness,
+      model: cfg.model.trim().isEmpty ? null : cfg.model.trim(),
+      title: 'Claude',
+    );
+  }
+
+  /// 连接（或重连）云端会话。没 token 时 [_bridgeWanted] 为 false，主界面退回本地。
+  Future<void> _bootBridge({bool forceNew = false}) {
+    final run = _bootBridgeImpl(forceNew: forceNew);
+    _bridgeBootFuture = run;
+    return run;
+  }
+
+  Future<void> _bootBridgeImpl({bool forceNew = false}) async {
+    final gen = ++_bridgeGen;
+    if (mounted) {
+      setState(() {
+        _bridgeChecking = true;
+        _bridgeError = null;
+      });
+    }
+    _disposeBridge();
+    BridgeClient? client;
+    try {
+      final cfg = await BridgeConfig.load();
+      if (gen != _bridgeGen) return;
+      if (!cfg.isComplete) {
+        if (mounted) {
+          setState(() {
+            _bridgeWanted = false;
+            _bridgeChecking = false;
+          });
+        }
+        return;
+      }
+      if (mounted) setState(() => _bridgeWanted = true);
+      if (forceNew) await BridgeConfig.clearSessionId();
+      client = BridgeClient(baseUrl: cfg.baseUrl, token: cfg.token);
+      final ok = await client.health();
+      if (gen != _bridgeGen) {
+        client.close();
+        return;
+      }
+      if (!ok) {
+        client.close();
+        if (mounted) {
+          setState(() {
+            _bridgeChecking = false;
+            _bridgeError = '连不上 ${cfg.baseUrl}。检查网络和 token。';
+          });
+        }
+        return;
+      }
+      final savedId = forceNew ? null : await BridgeConfig.loadSessionId();
+      BridgeSession session;
+      if (savedId != null) {
+        try {
+          session = await client.getSession(savedId);
+        } catch (_) {
+          session = await _createBridgeSession(client, cfg);
+        }
+      } else {
+        session = await _createBridgeSession(client, cfg);
+      }
+      if (gen != _bridgeGen) {
+        client.close();
+        return;
+      }
+      await BridgeConfig.saveSessionId(session.id);
+      final ctl = BridgeSessionController(client: client, sessionId: session.id);
+      ctl.addListener(_onBridge);
+      await ctl.loadHistory();
+      await ctl.start();
+      if (gen != _bridgeGen) {
+        ctl.removeListener(_onBridge);
+        ctl.dispose();
+        client.close();
+        return;
+      }
+      if (!mounted) {
+        ctl.removeListener(_onBridge);
+        ctl.dispose();
+        client.close();
+        return;
+      }
+      setState(() {
+        _bridgeClient = client;
+        _bridge = ctl;
+        _bridgeChecking = false;
+        _bridgeError = null;
+      });
+    } catch (e) {
+      if (!identical(client, _bridgeClient)) client?.close();
+      if (gen == _bridgeGen && mounted) {
+        setState(() {
+          _bridgeChecking = false;
+          _bridgeError = '$e';
+        });
+      }
+    }
+  }
+
+  Future<void> _openBridgeSettings() async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const BridgeSettingsPage()),
+    );
+    if (!mounted || saved != true) return;
+    await _bootBridge();
+  }
+
+  bool get _busy => _bridgeWanted ? (_bridge?.turnActive ?? false) : _running;
+
+  String get _chatStatus {
+    if (_bridgeChecking) return '正在连接云端';
+    if (!_bridgeWanted) return '本地';
+    if (_bridgeError != null && _bridge == null) return '云端未连通';
+    switch (_bridge?.status) {
+      case BridgeStatus.live:
+        return '云端';
+      case BridgeStatus.reconnecting:
+        return '云端重连中';
+      case BridgeStatus.connecting:
+        return '连接中';
+      case BridgeStatus.failed:
+      case BridgeStatus.offline:
+        return '云端已断开';
+      case BridgeStatus.idle:
+      case null:
+        return '云端';
+    }
+  }
+
   @override
   void dispose() {
+    _disposeBridge();
     _scrollController.removeListener(_onChatScroll);
     _scrollController.dispose();
     _composerFocus.dispose();
@@ -543,6 +715,8 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     // 自动更新检查（fire-and-forget，失败静默不打扰）。
     _checkUpdate();
+    // 主对话优先连云端 harness；没 token 才用本地 agent。
+    unawaited(_bootBridge());
   }
 
   /// 启动时静默检查更新，有新版 → 弹窗提示。
@@ -680,8 +854,16 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (_) {}
   }
 
-  /// 新建会话：生成新 sessionId，清空当前对话。
+  /// 新建会话：云端已接通时开一条新的 harness 会话，否则沿用本地会话库。
   Future<void> _newSession() async {
+    if (_bridgeBootFuture != null) await _bridgeBootFuture;
+    if (_bridgeWanted) {
+      if (_bridge?.turnActive == true) {
+        await _bridge?.interrupt();
+      }
+      await _bootBridge(forceNew: true);
+      return;
+    }
     final sdb = _sessionDb;
     if (sdb == null) return;
     if (!mounted) return;
@@ -1856,7 +2038,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _send() async {
     final text = _controller.text.trim();
-    if (text.isEmpty || _running) return;
+    if (text.isEmpty) return;
+    if (_bridgeBootFuture != null && _bridgeChecking) {
+      await _bridgeBootFuture;
+    }
+    if (_bridgeWanted) {
+      await _sendBridge(text);
+      return;
+    }
+    if (_running) return;
     // 一提交立即锁定发送状态（在 await config 之前），否则模型回答期间
     // 用户可重复回车穿透，并发执行多个任务。
     setState(() => _running = true);
@@ -1882,6 +2072,22 @@ class _ChatScreenState extends State<ChatScreen> {
 
     // 非 plan 模式：直接执行（完整工具集）。
     await _runTaskWithFullTools(text);
+  }
+
+  Future<void> _sendBridge(String text) async {
+    if (_bridgeSendLock || _bridge?.turnActive == true) return;
+    _bridgeSendLock = true;
+    try {
+      if (_bridge == null) await _bootBridge();
+      final ctl = _bridge;
+      if (ctl == null || ctl.turnActive) return;
+      _controller.clear();
+      setState(() => _showScrollToBottom = false);
+      await ctl.send(text);
+      _forceScrollToBottom();
+    } finally {
+      _bridgeSendLock = false;
+    }
   }
 
   void _addUser(String text) {
@@ -1937,6 +2143,89 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Widget _buildBridgePane() {
+    final ctl = _bridge;
+    if (ctl == null) {
+      if (_bridgeChecking) return const Center(child: CircularProgressIndicator());
+      return _bridgeEmpty();
+    }
+    return BridgeTranscript(
+      messages: ctl.messages,
+      scrollController: _scrollController,
+      lastKey: _lastMessageKey,
+      onToggleThinking: ctl.toggleThinking,
+      empty: _bridgeEmpty(),
+    );
+  }
+
+  Widget _bridgeEmpty() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 36),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Image(
+              image: AssetImage('assets/brand/claude_mark.png'),
+              width: 40,
+              height: 40,
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Claude',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.3,
+                    color: context.appPalette.textPrimary,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _bridgeError ??
+                  '消息直接发给云端 harness。思考过程会先显示，回复按笔记的 Markdown 渲染。',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: context.appPalette.textSecondary,
+                height: 1.45,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _localFallbackBanner() {
+    final palette = context.appPalette;
+    return Material(
+      color: palette.sidebar,
+      child: ListTile(
+        dense: true,
+        leading: Icon(Icons.cloud_off_outlined, color: palette.textSecondary),
+        title: const Text('云端对话还没填 token'),
+        subtitle: const Text('默认服务器 https://harness.312233.xyz。未配置时仍走本地 agent。'),
+        trailing: TextButton(
+          onPressed: _openBridgeSettings,
+          child: const Text('填写'),
+        ),
+      ),
+    );
+  }
+
+  Widget _bridgeErrorBanner() {
+    return Material(
+      color: context.appPalette.sidebar,
+      child: ListTile(
+        dense: true,
+        title: Text(_bridgeError ?? '云端未连通'),
+        trailing: TextButton(
+          onPressed: () => _bootBridge(),
+          child: const Text('重试'),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // ESC = 停止当前生成。
@@ -1949,15 +2238,28 @@ class _ChatScreenState extends State<ChatScreen> {
         child: Scaffold(
       appBar: AppBar(
         titleSpacing: 16,
-        title: const Row(
+        title: Row(
           children: [
-            Image(
+            const Image(
               image: AssetImage('assets/brand/claude_mark.png'),
               width: 22,
               height: 22,
             ),
-            SizedBox(width: 8),
-            Text('Claude'),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Claude'),
+                Text(
+                  _chatStatus,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w400,
+                    color: context.appPalette.textSecondary,
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
         actions: [
@@ -1975,13 +2277,13 @@ class _ChatScreenState extends State<ChatScreen> {
                     MaterialPageRoute(builder: (_) => const printnotes.MainPage()),
                   );
                 case 'bridge':
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const BridgeChatPage()),
-                  );
+                  _openBridgeSettings();
                 case 'settings':
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => SettingsScreen()),
-                  );
+                  ).then((_) {
+                    if (mounted) unawaited(_bootBridge());
+                  });
               }
             },
             // 精简菜单：新建 + 模式（模式/计划/强度合并）+ 笔记 + 设置。
@@ -2027,7 +2329,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   children: [
                     Icon(Icons.hub, size: 18, color: context.appPalette.textSecondary),
                     SizedBox(width: 8),
-                    Text('服务器桥接'),
+                    Text('云端连接'),
                   ],
                 ),
               ),
@@ -2054,7 +2356,11 @@ class _ChatScreenState extends State<ChatScreen> {
           Expanded(
             child: Stack(
               children: [
-                if (_messages.isEmpty)
+                if (_bridgeWanted)
+                  _buildBridgePane()
+                else if (_bridgeChecking)
+                  const Center(child: CircularProgressIndicator())
+                else if (_messages.isEmpty)
                   Center(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 36),
@@ -2118,7 +2424,10 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             ),
           ),
-          if (_running)
+          if (!_bridgeWanted && !_bridgeChecking) _localFallbackBanner(),
+          if (_bridgeWanted && _bridgeError != null && _bridge == null)
+            _bridgeErrorBanner(),
+          if (_busy || (_bridgeWanted && _bridgeChecking))
             const LinearProgressIndicator(minHeight: 2),
           SafeArea(
             child: Padding(
@@ -2147,7 +2456,7 @@ class _ChatScreenState extends State<ChatScreen> {
                           child: TextField(
                             controller: _controller,
                             focusNode: _composerFocus,
-                            enabled: !_running,
+                            enabled: !_busy,
                             minLines: 1,
                             maxLines: 5,
                             style: TextStyle(
@@ -2155,7 +2464,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               height: 1.35,
                             ),
                             decoration: InputDecoration(
-                              hintText: '输入任务…',
+                              hintText: _bridgeWanted ? '发给云端…' : '输入任务…',
                               hintStyle: TextStyle(color: p.inkTertiary),
                               border: InputBorder.none,
                               enabledBorder: InputBorder.none,
@@ -2178,11 +2487,11 @@ class _ChatScreenState extends State<ChatScreen> {
                               disabledBackgroundColor: p.hover,
                               shape: const CircleBorder(),
                             ),
-                            icon: Icon(_running
+                            icon: Icon(_busy
                                 ? Icons.stop_rounded
                                 : Icons.arrow_upward_rounded),
-                            onPressed: _running ? _stop : _send,
-                            tooltip: _running ? '停止生成' : '发送',
+                            onPressed: _busy ? _stop : _send,
+                            tooltip: _busy ? '停止生成' : '发送',
                           ),
                         ),
                       ],

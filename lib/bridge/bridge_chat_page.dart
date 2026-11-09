@@ -12,7 +12,8 @@ import 'bridge_events.dart';
 import 'bridge_session_controller.dart';
 import 'bridge_settings_page.dart';
 import 'package:mix/theme/theme_ext.dart';
-import 'package:mix/widgets/markdown_math.dart';
+
+import 'bridge_transcript.dart';
 
 class BridgeChatPage extends StatefulWidget {
   const BridgeChatPage({super.key});
@@ -22,7 +23,6 @@ class BridgeChatPage extends StatefulWidget {
 }
 
 class _BridgeChatPageState extends State<BridgeChatPage> {
-  BridgeConfig? _config;
   BridgeClient? _client;
   BridgeSessionController? _ctl;
   final TextEditingController _input = TextEditingController();
@@ -46,7 +46,6 @@ class _BridgeChatPageState extends State<BridgeChatPage> {
       });
       return;
     }
-    _config = cfg;
     _client = BridgeClient(baseUrl: cfg.baseUrl, token: cfg.token);
     final ok = await _client!.health();
     if (!mounted) return;
@@ -158,107 +157,12 @@ class _BridgeChatPageState extends State<BridgeChatPage> {
   }
 
   Widget _messageList() {
-    final msgs = _ctl?.messages ?? const <BridgeBubble>[];
-    if (msgs.isEmpty) {
-      return const Center(child: Text('发一条消息试试', style: TextStyle(color: Colors.grey)));
-    }
-    return ListView.builder(
-      controller: _scroll,
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-      itemCount: msgs.length,
-      itemBuilder: (context, i) => _bubble(msgs[i]),
-    );
-  }
-
-  Widget _bubble(BridgeBubble b) {
-    final scheme = Theme.of(context).colorScheme;
-    final palette = context.appPalette;
-    final isUser = b.isUser;
-    final isSystem = b.isSystem || b.error != null;
-    final bg = isUser
-        ? palette.bubble
-        : isSystem
-            ? scheme.errorContainer.withValues(alpha: 0.35)
-            : Colors.transparent;
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: EdgeInsets.symmetric(
-          horizontal: isUser ? 14 : 2,
-          vertical: isUser ? 10 : 4,
-        ),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * (isUser ? 0.82 : 0.96)),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(isUser ? 16 : 8),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (b.isThinking)
-              Text('思考', style: TextStyle(fontSize: 11, color: scheme.outline))
-            else if (isSystem)
-              Text('系统', style: TextStyle(fontSize: 11, color: scheme.error)),
-            if (b.text.isNotEmpty)
-              if (b.isAssistant)
-                // 助手输出走 MIX 自己的渲染引擎（与主对话一致：LaTeX/代码高亮/表格/复制）
-                MIXMarkdown(data: b.text, selectable: true)
-              else
-                SelectableText(
-                  b.text,
-                  style: TextStyle(
-                    fontSize: 14,
-                    height: 1.45,
-                    color: b.isThinking ? scheme.outline : null,
-                    fontStyle: b.isThinking ? FontStyle.italic : null,
-                  ),
-                ),
-            for (final t in b.tools) _toolChip(t),
-            if (b.streaming)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: SizedBox(
-                  width: 10,
-                  height: 10,
-                  child: CircularProgressIndicator(strokeWidth: 1.5, color: scheme.outline),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _toolChip(BridgeToolCall t) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.only(top: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        border: Border.all(color: scheme.outlineVariant),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            t.running
-                ? Icons.hourglass_top
-                : (t.ok ? Icons.check_circle_outline : Icons.error_outline),
-            size: 14,
-            color: t.running ? scheme.outline : (t.ok ? Colors.green : scheme.error),
-          ),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              t.running ? '${t.name} 运行中' : '${t.name}${t.ok ? '' : ' 失败'}',
-              style: const TextStyle(fontSize: 11),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
-      ),
+    final ctl = _ctl;
+    return BridgeTranscript(
+      messages: ctl?.messages ?? const <BridgeBubble>[],
+      scrollController: _scroll,
+      onToggleThinking: ctl?.toggleThinking,
+      empty: const Center(child: Text('发一条消息试试')),
     );
   }
 
