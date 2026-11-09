@@ -161,7 +161,7 @@ class MIXConfig {
 
   /// 当前 provider 的 wire 传输协议（决定用 OpenAI 兼容还是 Anthropic 客户端）。
   Transport get transport =>
-      resolveProviderFull(vendorId)?.transport ?? Transport.openAiChat;
+      resolveProviderFull(vendorId)?.transport ?? Transport.openaiChat;
 
   /// 生效的接口地址（自定义优先，否则 provider 预设）。
   String get effectiveBaseUrl => baseUrl.isNotEmpty
