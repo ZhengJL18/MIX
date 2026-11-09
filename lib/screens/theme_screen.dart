@@ -27,8 +27,20 @@ class _ThemeScreenState extends State<ThemeScreen> {
         children: [
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 8),
-            child: Text('配色方案',
+            child: Text('配色',
                 style: TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              '跟随 dsh-claude-style 的 Claude 色卡。这不是 Anthropic 官方主题。',
+              style: TextStyle(
+                color: context.appPalette.textSecondary,
+                fontSize: 13,
+                height: 1.4,
+              ),
+            ),
           ),
           const SizedBox(height: 8),
           for (final t in builtinThemes)

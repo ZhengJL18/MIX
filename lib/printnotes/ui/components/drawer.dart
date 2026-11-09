@@ -40,18 +40,19 @@ class DrawerView extends StatelessWidget {
                 Container(
                   height: MediaQuery.paddingOf(context).top + 160.0,
                   decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primary),
+                      color: Theme.of(context).colorScheme.surfaceContainerLow),
                   child: AnimatedContainer(
+                    alignment: Alignment.centerLeft,
                     margin: const EdgeInsets.only(bottom: 8.0),
                     padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0)
                         .add(EdgeInsets.only(
                             top: MediaQuery.paddingOf(context).top)),
                     duration: const Duration(milliseconds: 250),
                     curve: Curves.fastOutSlowIn,
-                    child: Icon(
-                      Icons.menu_book_rounded,
-                      size: 48,
-                      color: Theme.of(context).colorScheme.onPrimary,
+                    child: Image.asset(
+                      'assets/brand/claude_mark.png',
+                      width: 48,
+                      height: 48,
                     ),
                   ),
                 ),

@@ -184,7 +184,7 @@ extension on ExplorableNode {
       final file = data as TFile;
       if (fileTypeChecker(file.path) == CFileType.image) {
         return Icon(Icons.image_outlined,
-            color: Theme.of(context).colorScheme.primary);
+            color: Theme.of(context).colorScheme.secondary);
       }
       if (fileTypeChecker(file.path) == CFileType.sketch) {
         return const Icon(Icons.draw);

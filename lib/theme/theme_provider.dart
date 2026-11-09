@@ -1,8 +1,7 @@
 /// 主题提供者：管理当前主题 + 明暗，持久化，驱动全局 rebuild。
 ///
-/// 用 ValueNotifier，MaterialApp 外层包 ValueListenableBuilder——切换主题时
-/// 整棵 widget 树重建（ThemeExtension 全量替换），不会出现 MIX 那样
-/// "切主题后硬编码色不更新"的问题。
+/// 用 ValueNotifier，MaterialApp 外层包 ValueListenableBuilder——切换明暗时
+/// 整棵 widget 树重建（ThemeExtension 全量替换），硬编码色不会停在旧方案上。
 library;
 
 import 'package:flutter/material.dart';
@@ -18,12 +17,9 @@ class ThemeController {
   final ValueNotifier<ThemeBrightness> brightnessNotifier;
 
   ThemeController({
-    AppThemeSpec initialTheme = const AppThemeSpec(
-      id: 'teal', name: '青绿',
-      lightSeed: Color(0xFF00897B), darkSeed: Color(0xFF4DB6AC),
-    ),
+    AppThemeSpec? initialTheme,
     ThemeBrightness initialBrightness = ThemeBrightness.light,
-  })  : themeNotifier = ValueNotifier(initialTheme),
+  })  : themeNotifier = ValueNotifier(initialTheme ?? builtinThemes.first),
         brightnessNotifier = ValueNotifier(initialBrightness);
 
   AppThemeSpec get theme => themeNotifier.value;
@@ -36,7 +32,7 @@ class ThemeController {
   /// 从 SharedPreferences 加载。
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
-    final themeId = prefs.getString('theme_id') ?? 'teal';
+    final themeId = prefs.getString('theme_id') ?? 'claude';
     final dark = prefs.getBool('theme_dark') ?? false;
     themeNotifier.value = findTheme(themeId);
     brightnessNotifier.value =

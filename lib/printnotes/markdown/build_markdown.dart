@@ -8,6 +8,8 @@ import 'package:provider/provider.dart';
 import './markdown_widget/markdown_widget.dart';
 import 'package:scroll_to_index/scroll_to_index.dart';
 
+import 'package:mix/theme/theme_ext.dart';
+
 import 'package:mix/printnotes/providers/theme_provider.dart';
 import 'package:mix/printnotes/providers/settings_provider.dart';
 import 'package:mix/printnotes/providers/editor_config_provider.dart';
@@ -153,32 +155,31 @@ MarkdownConfig theMarkdownConfigs(
           Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.2),
     ),
     BlockquoteConfig(
-      textColor: textColor ??
-          Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.8),
-      sideColor: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3),
+      // 引用是容器，不是链接：暖灰字 + 中性竖条，避免把块内代码染成链接色。
+      textColor: textColor ?? const Color(0xFFB0AEA5),
+      sideColor: const Color(0xFF6E6A60),
     ),
     ImgConfig(
       builder: (url, attributes) => CustomImgBuilder(url, fileUri, attributes),
     ),
-    LinkConfig(onTap: (url) => linkHandler(context, url)),
+    LinkConfig(
+      style: TextStyle(
+        color: context.appPalette.link,
+        decoration: TextDecoration.underline,
+        decorationColor: context.appPalette.link.withValues(alpha: 0.6),
+      ),
+      onTap: (url) => linkHandler(context, url),
+    ),
     WikiLinkConfig(onTap: (url) => linkHandler(context, url)),
     const PreConfig().copy(
       theme: _codeThemeNoBg(themeMap[userCodeHighlight] ??
           (isDark ? a11yDarkTheme : a11yLightTheme)),
       decoration: BoxDecoration(
-          // 与聊天气泡同源：surfaceContainerHighest（主题色阶），
-          // 不再是接近纯白的 surface —— 修复"涂改带"观感。
-          color: Theme.of(context)
-              .colorScheme
-              .surfaceContainerHighest
-              .withValues(alpha: 0.65),
-          borderRadius: BorderRadius.all(Radius.circular(12)),
-          border: Border.all(
-              width: 1,
-              color: Theme.of(context)
-                  .colorScheme
-                  .onSurface
-                  .withValues(alpha: 0.15))),
+          color: isDark
+              ? context.appPalette.sidebar
+              : context.appPalette.canvas,
+          borderRadius: const BorderRadius.all(Radius.circular(8)),
+          border: Border.all(width: 1, color: context.appPalette.border)),
       wrapper: codeWrapper,
       textStyle: TextStyle(
           fontSize: inEditor ? editorFontSize : null,
@@ -187,14 +188,13 @@ MarkdownConfig theMarkdownConfigs(
           fontSize: inEditor ? editorFontSize : null,
           color: Theme.of(context).colorScheme.onSurface),
     ),
-    // 行内代码 `xxx` 背景同样跟随主题（原写死白底 0xCCeff1f3）。
+    // 行内代码：暖红墨 + 很浅的中性底（claude 卡 code / code-wash）。
     CodeConfig(
       style: TextStyle(
-          backgroundColor: Theme.of(context)
-              .colorScheme
-              .surfaceContainerHighest
-              .withValues(alpha: 0.65),
-          color: Theme.of(context).colorScheme.onSurface),
+          backgroundColor: isDark
+              ? const Color(0x0DFFFFFF)
+              : const Color(0x0D060606),
+          color: context.appPalette.codeInk),
     ),
   ]);
 }
@@ -235,17 +235,13 @@ Map<String, TextStyle> _codeThemeNoBg(Map<String, TextStyle> theme) {
 MarkdownGenerator theMarkdownGenerators(BuildContext context,
     {double? textScale}) {
   // Not an elegant way to customize, but it works
-  final isDark = Theme.of(context).brightness == Brightness.dark;
   SpanNodeGeneratorWithTag noteTagGenerator = SpanNodeGeneratorWithTag(
       tag: 'noteTag',
       generator: (e, config, visitor) => NoteTagNode(
             e.attributes,
             config,
-            tagBackgroundColor:
-                Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
-            tagTextColor: isDark
-                ? Theme.of(context).colorScheme.secondary
-                : Theme.of(context).colorScheme.primary,
+            tagBackgroundColor: context.appPalette.hover,
+            tagTextColor: context.appPalette.textPrimary,
           ));
 
   return MarkdownGenerator(

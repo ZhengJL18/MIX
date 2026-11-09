@@ -230,8 +230,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                               final ts = s['started_at'] as num?;
                               return ListTile(
                                 leading: CircleAvatar(
-                                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                                  child: const Icon(Icons.chat_bubble_outline, size: 20),
+                                  backgroundColor: context.appPalette.hover,
+                                  child: Icon(Icons.chat_bubble_outline,
+                                      size: 20,
+                                      color: context.appPalette.textSecondary),
                                 ),
                                 title: Text(
                                   _sessionTitle(s),
@@ -296,8 +298,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
         final snippets = hits[id] ?? [];
         return ListTile(
           leading: CircleAvatar(
-            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-            child: const Icon(Icons.search, size: 18),
+            backgroundColor: context.appPalette.hover,
+            child: Icon(Icons.search,
+                size: 18, color: context.appPalette.textSecondary),
           ),
           title: Text(_sessionTitle(s), maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle: Column(
@@ -309,7 +312,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   snippets.take(2).join(' / '),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 12, color: context.appPalette.primary),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: context.appPalette.textPrimary,
+                  ),
                 ),
             ],
           ),
@@ -424,19 +431,16 @@ class _SessionDetailScreenState extends State<_SessionDetailScreen> {
           maxWidth: MediaQuery.of(context).size.width * 0.78,
         ),
         decoration: BoxDecoration(
-          color: isUser
-              ? Theme.of(context).colorScheme.primaryContainer
-              : Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(14),
-            topRight: const Radius.circular(14),
-            bottomLeft: Radius.circular(isUser ? 14 : 4),
-            bottomRight: Radius.circular(isUser ? 4 : 14),
-          ),
+          color: isUser ? context.appPalette.bubble : Colors.transparent,
+          borderRadius: BorderRadius.circular(isUser ? 16 : 0),
         ),
         child: Text(
           text.isEmpty ? '（空消息）' : text,
-          style: const TextStyle(fontSize: 14, height: 1.4),
+          style: TextStyle(
+            fontSize: 14,
+            height: 1.4,
+            color: context.appPalette.textPrimary,
+          ),
         ),
       ),
     );

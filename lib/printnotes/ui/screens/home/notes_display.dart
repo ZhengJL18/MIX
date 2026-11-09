@@ -258,22 +258,24 @@ class _NotesDisplayState extends State<NotesDisplay> {
         drawer: widget.drawer,
         appBar: AppBarDragWrapper(
           child: AppBar(
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            foregroundColor: Theme.of(context).colorScheme.onPrimary,
+            backgroundColor: Theme.of(context).colorScheme.surface,
+            foregroundColor: Theme.of(context).colorScheme.onSurface,
+            surfaceTintColor: Colors.transparent,
+            elevation: 0,
             centerTitle: true,
             title: _isSearching
                 ? TextField(
                     controller: _searchController,
                     autofocus: true,
                     style: TextStyle(
-                        color: Theme.of(context).colorScheme.onPrimary),
+                        color: Theme.of(context).colorScheme.onSurface),
                     decoration: InputDecoration(
                       hintText: '搜索笔记…',
                       hintStyle: TextStyle(
                           color: Theme.of(context)
                               .colorScheme
-                              .onPrimary
-                              .withValues(alpha: 0.7)),
+                              .onSurface
+                              .withValues(alpha: 0.45)),
                       border: InputBorder.none,
                     ),
                     onChanged: (_) {

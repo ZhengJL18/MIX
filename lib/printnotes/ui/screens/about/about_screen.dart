@@ -18,8 +18,10 @@ class AboutScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBarDragWrapper(
         child: AppBar(
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          foregroundColor: Theme.of(context).colorScheme.onPrimary,
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          foregroundColor: Theme.of(context).colorScheme.onSurface,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
           centerTitle: true,
           title: const Text('关于'),
         ),
@@ -30,16 +32,22 @@ class AboutScreen extends StatelessWidget {
           child: Column(
             children: [
               const SizedBox(height: 8),
-              Icon(Icons.menu_book_rounded,
-                  size: 56, color: Theme.of(context).colorScheme.primary),
+              Image.asset('assets/brand/claude_mark.png',
+                  width: 56, height: 56),
               const SizedBox(height: 8),
-              Text('MIX',
+              Text('Claude',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold)),
               Text('v$appVersion',
                   style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 4),
               Text('在 Android 沙盒内运行 agent 级能力的笔记 + 学习 App',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall),
+              const SizedBox(height: 4),
+              Text(
+                  '界面跟随 dsh-claude-style，不是 Anthropic 官方客户端',
+                  textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodySmall),
               const SizedBox(height: 16),
               MenuTile(

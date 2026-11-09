@@ -178,7 +178,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('MIX 设置')),
+      appBar: AppBar(title: const Text('设置')),
       body: Form(
         key: _formKey,
         child: Column(
@@ -606,7 +606,7 @@ class _SettingsScreenState extends State<SettingsScreen>
               ListTile(
                 leading: const Icon(Icons.palette_outlined),
                 title: const Text('主题'),
-                subtitle: const Text('配色方案 + 明暗模式'),
+                subtitle: const Text('Claude 配色 · 浅色 / 深色'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
                   Navigator.of(context).push(
@@ -618,7 +618,7 @@ class _SettingsScreenState extends State<SettingsScreen>
               ListTile(
                 leading: const Icon(Icons.system_update_alt),
                 title: const Text('检查更新'),
-                subtitle: const Text('检查 MIX 是否有新版本'),
+                subtitle: const Text('检查是否有新版本'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Services.instance.checkUpdateHandler?.call(),
               ),

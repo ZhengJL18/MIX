@@ -28,10 +28,10 @@ class DrawerRailView extends StatelessWidget {
       data: IconButtonThemeData(
           style: ButtonStyle(
               iconColor: WidgetStatePropertyAll(
-                  Theme.of(context).colorScheme.onPrimary))),
+                  Theme.of(context).colorScheme.onSurfaceVariant))),
       child: Container(
         alignment: Alignment.center,
-        color: Theme.of(context).colorScheme.primary,
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
         child: ListView(
           children: [
             IconButton(

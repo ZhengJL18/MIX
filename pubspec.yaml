@@ -127,6 +127,7 @@ flutter:
   # 记忆子系统数据资产（v4 设计稿 §11）：dart_jieba 分词词典（包未声明
   # flutter assets，需自带）+ jieba idf.txt 热词权重表（P1 自动标签用）。
   assets:
+    - assets/brand/claude_mark.png
     - assets/katex/
     - assets/dict.dgz
     - assets/jieba_idf.txt

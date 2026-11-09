@@ -11,8 +11,5 @@ extension AppThemeContext on BuildContext {
       Theme.of(this).extension<AppPalette>() ?? _fallbackPalette;
 }
 
-/// 兜底调色板（理论上不会用到，extension 缺失时保底）。
-final AppPalette _fallbackPalette = paletteFromScheme(
-  ColorScheme.fromSeed(seedColor: const Color(0xFF00897B)),
-  isDark: false,
-);
+/// 兜底调色板（理论上不会用到，extension 缺失时保底为 Claude 浅色）。
+final AppPalette _fallbackPalette = claudePalette(ClaudeTokens.light);

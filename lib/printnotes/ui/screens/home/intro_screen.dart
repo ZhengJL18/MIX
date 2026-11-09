@@ -12,8 +12,8 @@ class IntroScreen extends StatelessWidget {
     return IntroductionScreen(
       pages: [
         PageViewModel(
-          title: "欢迎使用 MIX 笔记库",
-          body: "你的 Markdown 笔记库,与 MIX agent 共用同一目录,"
+          title: "欢迎使用 Claude 笔记库",
+          body: "你的 Markdown 笔记库,与 Claude 共用同一目录,"
               "agent 写的笔记这里能看到,这里编辑的笔记 agent 能读到。",
           image: Center(
               child: Icon(
@@ -25,7 +25,7 @@ class IntroScreen extends StatelessWidget {
         PageViewModel(
           title: "笔记库位置",
           body: "笔记统一存放在 App 应用目录下的 notes 文件夹,"
-              "与 MIX agent 共用同一个库。\n\n"
+              "与 Claude 共用同一个库。\n\n"
               "agent 写的笔记、学习讲义都会出现在这里,你可以直接浏览、编辑。",
           image: Center(
               child: Icon(

@@ -181,7 +181,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
                 Icon(
                   cat == 'general' ? Icons.category : Icons.folder,
                   size: 16,
-                  color: Theme.of(context).colorScheme.primary,
+                  color: context.appPalette.textSecondary,
                 ),
                 const SizedBox(width: 6),
                 Text(
@@ -189,7 +189,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: Theme.of(context).colorScheme.primary,
+                    color: context.appPalette.textPrimary,
                   ),
                 ),
                 const SizedBox(width: 6),

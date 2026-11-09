@@ -24,8 +24,10 @@ class EditorConfigPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBarDragWrapper(
         child: AppBar(
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          foregroundColor: Theme.of(context).colorScheme.onPrimary,
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          foregroundColor: Theme.of(context).colorScheme.onSurface,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
           centerTitle: true,
           title: const Text('编辑器设置'),
         ),
