@@ -20,7 +20,8 @@ import 'permissions.dart';
 /// [mode] 权限模式，提示词会据此申明「当前能做什么/不能做什么」。
 /// [extraSections] 记忆、技能目录、目标等运行期注入块（拼在最后）。
 String buildClaudeCodeSystemPrompt({
-  required String cwd,
+  // 可选：调用方不知道工作目录时（如计划模式）留空，提示词会显示默认根。
+  String cwd = '',
   List<String> toolNames = const [],
   PermissionMode mode = PermissionMode.def,
   List<String> extraSections = const [],
