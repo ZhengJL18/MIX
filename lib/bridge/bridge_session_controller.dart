@@ -24,6 +24,9 @@ class BridgeBubble {
   bool streaming;
   String? error;
 
+  /// 本地乐观插入、等待服务端 user.message 事件认领的消息。
+  bool optimistic;
+
   BridgeBubble({
     required this.role,
     this.text = '',
@@ -31,6 +34,7 @@ class BridgeBubble {
     List<BridgeToolCall>? tools,
     this.streaming = false,
     this.error,
+    this.optimistic = false,
   }) : tools = tools ?? <BridgeToolCall>[];
 
   bool get isUser => role == 'user';
@@ -84,11 +88,17 @@ class BridgeSessionController extends ChangeNotifier {
     cursor = await BridgeCursorStore.load(sessionId);
     _setStatus(BridgeStatus.connecting);
     _sub = client
-        .stream(sessionId, fromSeq: cursor, onCursor: (seq) {
-          cursor = seq;
-          // 游标落盘（不 await：高频路径上不阻塞事件处理）
-          unawaited(BridgeCursorStore.save(sessionId, seq));
-        })
+        .stream(
+          sessionId,
+          fromSeq: cursor,
+          onCursor: (seq) {
+            cursor = seq;
+            // 游标落盘（不 await：高频路径上不阻塞事件处理）
+            unawaited(BridgeCursorStore.save(sessionId, seq));
+          },
+          // TCP 一通就算在线：新会话没有历史事件，不能一直停在"连接中"。
+          onConnected: () => _setStatus(BridgeStatus.live),
+        )
         .listen(
           _onEvent,
           onError: (Object e) {
@@ -106,7 +116,12 @@ class BridgeSessionController extends ChangeNotifier {
   Future<void> send(String text) async {
     final trimmed = text.trim();
     if (trimmed.isEmpty) return;
-    messages.add(BridgeBubble(role: 'user', text: trimmed, ts: DateTime.now().millisecondsSinceEpoch));
+    messages.add(BridgeBubble(
+      role: 'user',
+      text: trimmed,
+      ts: DateTime.now().millisecondsSinceEpoch,
+      optimistic: true,
+    ));
     _openAssistant = null;
     _openThinking = null;
     notifyListeners();
@@ -172,7 +187,13 @@ class BridgeSessionController extends ChangeNotifier {
 
     switch (ev.type) {
       case 'user.message':
-        messages.add(BridgeBubble(role: 'user', text: ev.text, ts: now));
+        // send() 已乐观插入同文本气泡：这里认领它，避免显示两遍。
+        final pendingIdx = messages.lastIndexWhere((m) => m.isUser && m.optimistic);
+        if (pendingIdx >= 0 && messages[pendingIdx].text == ev.text) {
+          messages[pendingIdx].optimistic = false;
+        } else {
+          messages.add(BridgeBubble(role: 'user', text: ev.text, ts: now));
+        }
         _openAssistant = null;
         break;
 

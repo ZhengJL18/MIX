@@ -171,6 +171,7 @@ class BridgeClient {
     String sessionId, {
     int fromSeq = 0,
     void Function(int seq)? onCursor,
+    void Function()? onConnected,
   }) async* {
     var cursor = fromSeq;
     var attempt = 0;
@@ -178,7 +179,7 @@ class BridgeClient {
     while (!_disposed) {
       var receivedAny = false;
       try {
-        await for (final ev in _openSse(sessionId, cursor)) {
+        await for (final ev in _openSse(sessionId, cursor, onConnected)) {
           if (_disposed) return;
           receivedAny = true;
           attempt = 0; // 链路活着 → 清零退避
@@ -208,7 +209,11 @@ class BridgeClient {
   }
 
   /// 单次 SSE 连接：从 [after] 之后补发 + 接实时。
-  Stream<BridgeEvent> _openSse(String sessionId, int after) async* {
+  Stream<BridgeEvent> _openSse(
+    String sessionId,
+    int after,
+    void Function()? onConnected,
+  ) async* {
     final req = http.Request(
       'GET',
       _uri('/v1/sessions/$sessionId/events', {'after': '$after'}),
@@ -227,6 +232,8 @@ class BridgeClient {
       throw BridgeException('SSE ${resp.statusCode}', statusCode: resp.statusCode);
     }
 
+    // 已建立 SSE（200）：即便此刻没有任何事件，连接也是活的。
+    onConnected?.call();
     final lines = resp.stream
         .transform(utf8.decoder)
         .transform(const LineSplitter())
