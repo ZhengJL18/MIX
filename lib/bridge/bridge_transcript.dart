@@ -4,9 +4,12 @@
 /// 思考块在 `think.delta` 期间展开，正文到来后收起。
 library;
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import 'package:mix/theme/theme_ext.dart';
+import 'package:mix/widgets/chat_chrome.dart';
 import 'package:mix/widgets/markdown_math.dart';
 
 import 'bridge_session_controller.dart';
@@ -68,103 +71,39 @@ class _BridgeBubbleView extends StatelessWidget {
   }
 
   Widget _user(BuildContext context) {
-    final palette = context.appPalette;
-    return Align(
-      alignment: Alignment.centerRight,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12, left: 48),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.82),
-        decoration: BoxDecoration(
-          color: palette.bubble,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Text(
-          bubble.text,
-          style: TextStyle(color: palette.textPrimary, height: 1.4),
-        ),
-      ),
+    if (bubble.text.isEmpty) return const SizedBox.shrink();
+    // 用户消息走同一条渲染管线：公式/代码块/HTML 与助手侧观感一致。
+    return ChatUserBubble(
+      child: MIXMarkdown(data: bubble.text, selectable: true),
     );
   }
 
   Widget _thinking(BuildContext context) {
-    final palette = context.appPalette;
     final showBody = bubble.streaming || !bubble.collapsed;
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.92),
-        decoration: BoxDecoration(
-          color: palette.sidebar,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            InkWell(
-              onTap: bubble.streaming ? null : () => onToggleThinking?.call(bubble),
-              child: Row(
-                children: [
-                  Icon(Icons.psychology_outlined, size: 14, color: palette.inkTertiary),
-                  const SizedBox(width: 6),
-                  Text(
-                    bubble.streaming ? '思考中…' : '已思考',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontStyle: FontStyle.italic,
-                      color: palette.inkTertiary,
-                    ),
-                  ),
-                  if (bubble.streaming) ...[
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      width: 10,
-                      height: 10,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 1.5,
-                        color: palette.inkTertiary,
-                      ),
-                    ),
-                  ] else
-                    Icon(
-                      showBody ? Icons.expand_less : Icons.expand_more,
-                      size: 16,
-                      color: palette.inkTertiary,
-                    ),
-                ],
-              ),
-            ),
-            if (showBody && bubble.text.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                bubble.text,
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.4,
-                  fontStyle: FontStyle.italic,
-                  color: palette.inkTertiary,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
+    return ThinkingBlock(
+      text: bubble.text,
+      streaming: bubble.streaming,
+      expanded: showBody,
+      onToggle: bubble.streaming ? null : () => onToggleThinking?.call(bubble),
     );
   }
 
   Widget _assistant(BuildContext context) {
     final palette = context.appPalette;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12, right: 4),
+    final segs = bubble.segments;
+    return AssistantBlock(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (bubble.text.isNotEmpty)
-            MIXMarkdown(data: bubble.text, selectable: true),
-          for (final t in bubble.tools) _toolChip(context, t),
-          if (bubble.streaming && bubble.text.isEmpty && bubble.tools.isEmpty)
+          // 有分段表就按到达顺序交错渲染；历史恢复等只填了 text 的走旧路径。
+          if (segs.isEmpty) ...[
+            if (bubble.text.isNotEmpty)
+              MIXMarkdown(data: bubble.text, selectable: true),
+            for (final t in bubble.tools) _ToolRow(call: t),
+          ] else
+            for (var i = 0; i < segs.length; i++)
+              _segment(context, segs[i], isLast: i == segs.length - 1),
+          if (bubble.streaming && segs.isEmpty && bubble.text.isEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Text(
@@ -177,34 +116,133 @@ class _BridgeBubbleView extends StatelessWidget {
     );
   }
 
-  Widget _toolChip(BuildContext context, BridgeToolCall t) {
+  Widget _segment(
+    BuildContext context,
+    BridgeSegment seg, {
+    required bool isLast,
+  }) {
+    if (seg is BridgeToolSeg) {
+      return _ToolRow(call: seg.call);
+    }
+    final text = (seg as BridgeTextSeg).buf.toString();
+    if (text.trim().isEmpty) return const SizedBox.shrink();
+    return MIXMarkdown(
+      data: text,
+      selectable: true,
+      // 只有最后一段可能还在追加；前面几段已经定型，可以按块分派。
+      streaming: bubble.streaming && isLast,
+    );
+  }
+
+  Widget _system(BuildContext context) {
+    return ChatMetaLine(text: bubble.text, failed: bubble.error != null);
+  }
+}
+
+// ============================================================================
+// 工具调用行
+// ============================================================================
+//
+// 视觉参照 Claude：**不是卡片** —— 没有边框、没有底色、没有圆角方块。
+// 只有一行「状态图标 + 动词 + 参数摘要」，点按在原位展开详情，详情用一条极细
+// 的竖线标示层级。理由：工具调用在一条回答里可能出现十几次，用小卡片会把
+// 对话切成碎片；做成行才读得下去，也才有「Agent 在干活」的连续感。
+
+class _ToolRow extends StatefulWidget {
+  const _ToolRow({required this.call});
+
+  final BridgeToolCall call;
+
+  @override
+  State<_ToolRow> createState() => _ToolRowState();
+}
+
+class _ToolRowState extends State<_ToolRow> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = widget.call;
+    final label = describeToolPhrase(
+      name: t.name,
+      running: t.running,
+      ok: t.ok,
+      input: t.input,
+    );
+
+    return ChatEventRow(
+      running: t.running,
+      ok: t.ok,
+      verb: label.verb,
+      detail: label.arg,
+      expanded: _open,
+      onToggle: () => setState(() => _open = !_open),
+      details: _open ? _details(context, t) : null,
+    );
+  }
+
+  Widget _details(BuildContext context, BridgeToolCall t) {
     final palette = context.appPalette;
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.only(top: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        border: Border.all(color: palette.border),
-        borderRadius: BorderRadius.circular(8),
+    final rows = <Widget>[
+      Text(
+        t.name,
+        style: TextStyle(
+          fontSize: 11,
+          fontFamily: 'monospace',
+          color: palette.inkTertiary.withValues(alpha: 0.7),
+        ),
       ),
+    ];
+    for (final e in t.input.entries) {
+      rows.add(_kv(context, e.key, _stringify(e.value)));
+    }
+    if (t.preview.isNotEmpty) {
+      rows.add(const SizedBox(height: 4));
+      rows.add(_kv(context, '结果', _stringify(t.preview)));
+    }
+    return Container(
+      margin: const EdgeInsets.only(left: 6, bottom: 2),
+      padding: const EdgeInsets.only(left: 10, top: 3, bottom: 4),
+      decoration: BoxDecoration(
+        border: Border(
+          left: BorderSide(color: palette.border, width: 1),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: rows,
+      ),
+    );
+  }
+
+  Widget _kv(BuildContext context, String k, String v) {
+    final palette = context.appPalette;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            t.running
-                ? Icons.hourglass_top
-                : (t.ok ? Icons.check_circle_outline : Icons.error_outline),
-            size: 14,
-            color: t.running
-                ? palette.inkTertiary
-                : (t.ok ? palette.success : scheme.error),
-          ),
-          const SizedBox(width: 6),
-          Flexible(
+          SizedBox(
+            width: 74,
             child: Text(
-              t.running ? '${t.name} 运行中' : '${t.name}${t.ok ? '' : ' 失败'}',
-              style: const TextStyle(fontSize: 12),
-              overflow: TextOverflow.ellipsis,
+              k,
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.45,
+                color: palette.inkTertiary.withValues(alpha: 0.6),
+              ),
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              v,
+              maxLines: 12,
+              style: TextStyle(
+                fontSize: 11.5,
+                height: 1.45,
+                fontFamily: 'monospace',
+                color: palette.textSecondary,
+              ),
             ),
           ),
         ],
@@ -212,20 +250,19 @@ class _BridgeBubbleView extends StatelessWidget {
     );
   }
 
-  Widget _system(BuildContext context) {
-    final palette = context.appPalette;
-    final scheme = Theme.of(context).colorScheme;
-    final failed = bubble.error != null;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        bubble.text,
-        style: TextStyle(
-          fontSize: 12,
-          height: 1.4,
-          color: failed ? scheme.error : palette.inkTertiary,
-        ),
-      ),
-    );
+  /// 值可能是字符串，也可能是嵌套 Map/List —— 统一转成可读文本并截断。
+  static String _stringify(Object? v) {
+    if (v == null) return '';
+    var s = v is String ? v : _tryJson(v);
+    if (s.length > 1600) s = '${s.substring(0, 1600)}…';
+    return s;
+  }
+
+  static String _tryJson(Object v) {
+    try {
+      return jsonEncode(v);
+    } catch (_) {
+      return '$v';
+    }
   }
 }

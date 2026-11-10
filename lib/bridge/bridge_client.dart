@@ -17,6 +17,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'bridge_events.dart';
+import 'happy_eyeballs.dart';
 
 /// 桥接层异常（网络/协议/服务端错误统一成这一类）。
 class BridgeException implements Exception {
@@ -49,8 +50,11 @@ class BridgeClient {
     http.Client? client,
     BackoffPolicy backoff = const BackoffPolicy(),
     this.idleTimeout = const Duration(seconds: 45),
-  })  : _client = client ?? http.Client(),
+  })  : _client = client ?? buildHardenedHttpClient(),
         _backoff = backoff;
+
+  /// 最近一次健康检查的失败原因（UI 用来区分「没网」「token 错」「服务没起」）。
+  String? lastHealthError;
 
   Map<String, String> get _headers => {
         'Authorization': 'Bearer $token',
@@ -63,17 +67,47 @@ class BridgeClient {
   // ── REST ──────────────────────────────────────────────────────────────
 
   /// 健康检查。
+  ///
+  /// 失败原因记到 [lastHealthError]：`catch` 里直接吞掉异常的话，UI 只能显示
+  /// 一句「连不上」，用户和排查的人都拿不到线索（究竟是 DNS、连接超时、
+  /// token 错还是服务没起）。
   Future<bool> health() async {
+    lastHealthError = null;
     try {
       final r = await _client
           .get(_uri('/healthz'), headers: _headers)
-          .timeout(const Duration(seconds: 8));
-      if (r.statusCode != 200) return false;
+          .timeout(const Duration(seconds: 12));
+      if (r.statusCode != 200) {
+        lastHealthError = r.statusCode == 401
+            ? 'token 被拒绝（401）'
+            : 'HTTP ${r.statusCode}';
+        return false;
+      }
       final j = jsonDecode(r.body);
-      return j is Map && j['ok'] == true;
-    } catch (_) {
+      final ok = j is Map && j['ok'] == true;
+      if (!ok) lastHealthError = '响应不是 healthz 格式';
+      return ok;
+    } catch (e) {
+      lastHealthError = _humanize(e);
       return false;
     }
+  }
+
+  /// 把底层异常翻成人话。原始字符串会一路显示到状态栏和横幅里，
+  /// 「ClientException with SocketException: Failed host lookup…」没人读得懂。
+  static String _humanize(Object e) {
+    final s = '$e';
+    if (s.contains('Failed host lookup') || s.contains('No address associated')) {
+      return '域名解析失败（DNS）';
+    }
+    if (s.contains('Connection refused')) return '连接被拒绝（端口没监听）';
+    if (s.contains('连接超时')) return '连接超时（候选地址均无响应）';
+    if (s.contains('TimeoutException') || s.contains('timed out')) return '请求超时';
+    if (s.contains('HandshakeException') || s.contains('CERTIFICATE')) {
+      return 'TLS 握手失败（证书或中间人）';
+    }
+    if (s.contains('Network is unreachable')) return '网络不可达（没连上网）';
+    return s.length > 120 ? '${s.substring(0, 120)}…' : s;
   }
 
   /// 会话列表。
@@ -146,18 +180,39 @@ class BridgeClient {
   }
 
   /// 投影消息（服务端读模型，比自行拼事件更省事）。
-  Future<List<BridgeMessage>> messages(String sessionId, {int limit = 200}) async {
+  ///
+  /// 只取消息列表的便捷版。需要水位（判断投影是否追平、推进本地游标）时用
+  /// [messagesPage]。
+  Future<List<BridgeMessage>> messages(String sessionId, {int limit = 200}) async =>
+      (await messagesPage(sessionId, limit: limit)).messages;
+
+  /// 投影消息 + 服务端水位。
+  ///
+  /// `applied_seq < last_seq` 表示读模型还没追平，这批消息是旧的 —— 调用方
+  /// 不应该把它当成「已同步」写进本地缓存。
+  Future<BridgeMessagePage> messagesPage(
+    String sessionId, {
+    int limit = 200,
+    int? before,
+  }) async {
+    final query = {'limit': '$limit', if (before != null) 'before': '$before'};
     final r = await _client
-        .get(_uri('/v1/sessions/$sessionId/messages', {'limit': '$limit'}), headers: _headers)
+        .get(_uri('/v1/sessions/$sessionId/messages', query), headers: _headers)
         .timeout(const Duration(seconds: 15));
     _ensureOk(r, 'messages');
     final j = jsonDecode(r.body) as Map<String, dynamic>;
     final list = j['messages'];
-    if (list is! List) return const [];
-    return [
-      for (final e in list)
-        if (e is Map<String, dynamic>) BridgeMessage.fromJson(e),
+    final messages = <BridgeMessage>[
+      if (list is List)
+        for (final e in list)
+          if (e is Map<String, dynamic>) BridgeMessage.fromJson(e),
     ];
+    int asInt(Object? v) => v is int ? v : int.tryParse('$v') ?? 0;
+    return BridgeMessagePage(
+      messages: messages,
+      appliedSeq: asInt(j['applied_seq']),
+      lastSeq: asInt(j['last_seq']),
+    );
   }
 
   // ── SSE 事件流 ────────────────────────────────────────────────────────

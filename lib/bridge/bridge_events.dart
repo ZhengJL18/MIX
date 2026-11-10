@@ -132,10 +132,41 @@ class BridgeMessage {
         meta: j['meta'] is Map ? Map<String, dynamic>.from(j['meta'] as Map) : const {},
       );
 
+  /// 落本地缓存用。字段与服务端投影一致，回读时能直接走 [fromJson]。
+  Map<String, dynamic> toJson() => {
+        'ord': ord,
+        'role': role,
+        'text': text,
+        'ts': ts,
+        'meta': meta,
+      };
+
   bool get isUser => role == 'user';
   bool get isAssistant => role == 'assistant';
   bool get isThinking => role == 'thinking';
   bool get isSystem => role == 'system';
+}
+
+/// 一次投影拉取的完整结果。
+///
+/// 除了消息本身，还必须带上服务端的两个水位：
+/// - [appliedSeq]：投影已折叠到哪个事件。小于 [lastSeq] 说明读模型还没追平，
+///   这时拿到的消息是**旧的**。
+/// - [lastSeq]：会话最新事件号。客户端把它当作「已同步到哪」的权威值，
+///   并据此推进本地 SSE 游标，避免重连时把历史事件再 replay 一遍。
+class BridgeMessagePage {
+  const BridgeMessagePage({
+    required this.messages,
+    required this.appliedSeq,
+    required this.lastSeq,
+  });
+
+  final List<BridgeMessage> messages;
+  final int appliedSeq;
+  final int lastSeq;
+
+  /// 投影落后于事件流：还需要继续消费 events 才能看到最新内容。
+  bool get projectionBehind => appliedSeq < lastSeq;
 }
 
 /// 重连退避策略（借 openbot RemoteEventStream 的思路）：

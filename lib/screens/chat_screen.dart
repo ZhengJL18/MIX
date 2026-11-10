@@ -88,6 +88,7 @@ import 'package:mix/tools/study_tools.dart';
 import 'package:mix/tools/todo_tool.dart';
 import 'package:mix/tools/vision_tool.dart';
 import 'package:mix/tools/web_tools.dart';
+import 'package:mix/widgets/chat_chrome.dart';
 import 'package:mix/widgets/markdown_math.dart';
 
 
@@ -529,22 +530,47 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) setState(() => _bridgeWanted = true);
       if (forceNew) await BridgeConfig.clearSessionId();
       client = BridgeClient(baseUrl: cfg.baseUrl, token: cfg.token);
+      final savedId = forceNew ? null : await BridgeConfig.loadSessionId();
+      if (gen != _bridgeGen) {
+        client.close();
+        return;
+      }
       final ok = await client.health();
       if (gen != _bridgeGen) {
         client.close();
         return;
       }
       if (!ok) {
+        final why = client.lastHealthError ?? '检查网络和 token';
+        // 连不上不等于没内容可看：服务端是金标准，但盘上有上次的完整快照。
+        // 没有历史会话时才真的没东西可展示，仍走错误态。
+        if (savedId != null) {
+          final ctl = BridgeSessionController(client: client, sessionId: savedId);
+          ctl.addListener(_onBridge);
+          await ctl.loadHistory(cacheOnly: true);
+          if (gen != _bridgeGen || !mounted) {
+            ctl.removeListener(_onBridge);
+            ctl.dispose();
+            client.close();
+            return;
+          }
+          setState(() {
+            _bridgeClient = client;
+            _bridge = ctl;
+            _bridgeChecking = false;
+            _bridgeError = '离线：显示本地缓存 · $why';
+          });
+          return;
+        }
         client.close();
         if (mounted) {
           setState(() {
             _bridgeChecking = false;
-            _bridgeError = '连不上 ${cfg.baseUrl}。检查网络和 token。';
+            _bridgeError = '连不上 ${cfg.baseUrl}。$why';
           });
         }
         return;
       }
-      final savedId = forceNew ? null : await BridgeConfig.loadSessionId();
       BridgeSession session;
       if (savedId != null) {
         try {
@@ -607,6 +633,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_bridgeChecking) return '正在连接云端';
     if (!_bridgeWanted) return '本地';
     if (_bridgeError != null && _bridge == null) return '云端未连通';
+    if (_bridgeError != null && _bridge != null) return '离线 · 本地缓存';
     switch (_bridge?.status) {
       case BridgeStatus.live:
         return '云端';
@@ -621,6 +648,44 @@ class _ChatScreenState extends State<ChatScreen> {
       case null:
         return '云端';
     }
+  }
+
+  Widget _chatStatusLine() {
+    final palette = context.appPalette;
+    final Color dot;
+    if (_bridgeChecking) {
+      dot = const Color(0xFFD9A441);
+    } else if (!_bridgeWanted) {
+      dot = palette.inkTertiary;
+    } else if (_bridgeError != null) {
+      dot = palette.danger;
+    } else {
+      dot = switch (_bridge?.status) {
+        BridgeStatus.live => palette.success,
+        BridgeStatus.connecting || BridgeStatus.reconnecting =>
+          const Color(0xFFD9A441),
+        BridgeStatus.offline || BridgeStatus.failed => palette.danger,
+        BridgeStatus.idle || null => palette.inkTertiary,
+      };
+    }
+    return Row(
+      children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          _chatStatus,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w400,
+            color: palette.textSecondary,
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -2159,70 +2224,45 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _bridgeEmpty() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 36),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Image(
-              image: AssetImage('assets/brand/mix_mark.png'),
-              width: 40,
-              height: 40,
-            ),
-            const SizedBox(height: 14),
-            Text(
-              'MIX',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.3,
-                    color: context.appPalette.textPrimary,
-                  ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _bridgeError ??
-                  '消息直接发给云端 harness。思考过程会先显示，回复按笔记的 Markdown 渲染。',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: context.appPalette.textSecondary,
-                height: 1.45,
-              ),
-            ),
-          ],
-        ),
-      ),
+    if (_bridge == null && _bridgeError != null) {
+      return ChatEmptyState(
+        title: '连不上云端',
+        body: _bridgeError!,
+        actionLabel: '重试',
+        onAction: () => _bootBridge(),
+        secondaryLabel: '配置',
+        onSecondary: _openBridgeSettings,
+      );
+    }
+    return const ChatEmptyState(
+      title: 'MIX',
+      body: '从这里开始。思考、工具和公式都留在这条对话里。',
+      largeTitle: true,
     );
   }
 
-  Widget _localFallbackBanner() {
-    final palette = context.appPalette;
-    return Material(
-      color: palette.sidebar,
-      child: ListTile(
-        dense: true,
-        leading: Icon(Icons.cloud_off_outlined, color: palette.textSecondary),
-        title: const Text('云端对话还没填 token'),
-        subtitle: const Text('默认服务器 https://harness.312233.xyz。未配置时仍走本地 agent。'),
-        trailing: TextButton(
-          onPressed: _openBridgeSettings,
-          child: const Text('填写'),
-        ),
-      ),
+  /// 离线横幅只在已经有本地会话可看时出现。没有会话时，空态自己带重试，
+  /// 不再叠一条同样内容的卡片。
+  Widget _offlineNotice() {
+    final raw = _bridgeError ?? '';
+    final cut = raw.indexOf('·');
+    final detail = cut >= 0 ? raw.substring(cut + 1).trim() : raw;
+    return SessionNotice(
+      icon: Icons.cloud_off_outlined,
+      title: '离线，显示本地缓存',
+      detail: detail.isEmpty ? null : detail,
+      actionLabel: '重试',
+      onAction: () => _bootBridge(),
     );
   }
 
-  Widget _bridgeErrorBanner() {
-    return Material(
-      color: context.appPalette.sidebar,
-      child: ListTile(
-        dense: true,
-        title: Text(_bridgeError ?? '云端未连通'),
-        trailing: TextButton(
-          onPressed: () => _bootBridge(),
-          child: const Text('重试'),
-        ),
-      ),
+  Widget _localFallbackNotice() {
+    return SessionNotice(
+      icon: Icons.cloud_off_outlined,
+      title: '云端对话还没填 token',
+      detail: '默认服务器 https://harness.312233.xyz。未配置时仍走本地 agent。',
+      actionLabel: '填写',
+      onAction: _openBridgeSettings,
     );
   }
 
@@ -2250,14 +2290,7 @@ class _ChatScreenState extends State<ChatScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text('MIX'),
-                Text(
-                  _chatStatus,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w400,
-                    color: context.appPalette.textSecondary,
-                  ),
-                ),
+                _chatStatusLine(),
               ],
             ),
           ],
@@ -2361,42 +2394,10 @@ class _ChatScreenState extends State<ChatScreen> {
                 else if (_bridgeChecking)
                   const Center(child: CircularProgressIndicator())
                 else if (_messages.isEmpty)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 36),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Image(
-                            image: AssetImage('assets/brand/mix_mark.png'),
-                            width: 40,
-                            height: 40,
-                          ),
-                          const SizedBox(height: 14),
-                          Text(
-                            'MIX',
-                            style: Theme.of(context)
-                                .textTheme
-                                .headlineSmall
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: -0.3,
-                                  color: context.appPalette.textPrimary,
-                                ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '沙盒里的 agent。输入任务试试，'
-                            '比如：在 notes 目录写一首关于安卓的俳句并读给我看',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: context.appPalette.textSecondary,
-                              height: 1.45,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  const ChatEmptyState(
+                    title: 'MIX',
+                    body: '从这里开始。思考、工具和公式都留在这条对话里。',
+                    largeTitle: true,
                   )
                 else
                   ListView.builder(
@@ -2424,11 +2425,10 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             ),
           ),
-          if (!_bridgeWanted && !_bridgeChecking) _localFallbackBanner(),
-          if (_bridgeWanted && _bridgeError != null && _bridge == null)
-            _bridgeErrorBanner(),
-          if (_busy || (_bridgeWanted && _bridgeChecking))
-            const LinearProgressIndicator(minHeight: 2),
+          if (!_bridgeWanted && !_bridgeChecking) _localFallbackNotice(),
+          if (_bridgeWanted && _bridge != null && _bridgeError != null)
+            _offlineNotice(),
+          if (_busy) const LinearProgressIndicator(minHeight: 2),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
@@ -2440,10 +2440,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   return AnimatedContainer(
                     duration: const Duration(milliseconds: 120),
                     curve: Curves.easeOut,
-                    padding: const EdgeInsets.fromLTRB(14, 2, 4, 2),
+                    padding: const EdgeInsets.fromLTRB(16, 2, 4, 2),
                     decoration: BoxDecoration(
                       color: p.inset,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(22),
                       border: Border.all(
                         color: focused ? p.primary : p.border,
                         width: focused ? 1.5 : 1,
@@ -2458,14 +2458,18 @@ class _ChatScreenState extends State<ChatScreen> {
                             focusNode: _composerFocus,
                             enabled: !_busy,
                             minLines: 1,
-                            maxLines: 5,
+                            maxLines: 6,
                             style: TextStyle(
                               color: p.textPrimary,
-                              height: 1.35,
+                              fontSize: 16,
+                              height: 1.5,
                             ),
                             decoration: InputDecoration(
-                              hintText: _bridgeWanted ? '发给云端…' : '输入任务…',
-                              hintStyle: TextStyle(color: p.inkTertiary),
+                              hintText: '发消息',
+                              hintStyle: TextStyle(
+                                color: p.inkTertiary,
+                                fontSize: 16,
+                              ),
                               border: InputBorder.none,
                               enabledBorder: InputBorder.none,
                               focusedBorder: InputBorder.none,
@@ -3094,59 +3098,17 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildMessage(_ChatMessage m) {
     switch (m.role) {
       case 'user':
-        return Align(
-          alignment: Alignment.centerRight,
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 12, left: 48),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.sizeOf(context).width * 0.82,
-            ),
-            decoration: BoxDecoration(
-              color: context.appPalette.bubble,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Text(
-              m.text ?? '',
-              style: TextStyle(
-                color: context.appPalette.textPrimary,
-                height: 1.4,
-              ),
-            ),
-          ),
+        if ((m.text ?? '').isEmpty) return const SizedBox.shrink();
+        // 用户消息走同一条渲染管线：公式/代码块/HTML 与助手侧观感一致。
+        return ChatUserBubble(
+          child: MIXMarkdown(data: m.text ?? '', selectable: true),
         );
       case 'reasoning':
-        // 思考中块（暖灰斜体，reasoner 模型推理过程实时显示）。
-        return Align(
-          alignment: Alignment.centerLeft,
-          child: Container(
-            margin: const EdgeInsets.only(bottom: 10),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: context.appPalette.sidebar,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            constraints: BoxConstraints(
-              maxWidth: MediaQuery.sizeOf(context).width * 0.92,
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.psychology_outlined,
-                    size: 14, color: context.appPalette.inkTertiary),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    (m.text ?? '').isEmpty ? '思考中…' : m.text!,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontStyle: FontStyle.italic,
-                        color: context.appPalette.inkTertiary,
-                        height: 1.4),
-                  ),
-                ),
-              ],
-            ),
-          ),
+        // 思考过程是一行，不是灰卡片。本地路径在正文到来前一直处于流式。
+        return ThinkingBlock(
+          text: m.text ?? '',
+          streaming: true,
+          expanded: true,
         );
       case 'assistant':
         // 题目卡检测：agent 以 ```json 输出题目 → 渲染可点题卡。
@@ -3160,8 +3122,7 @@ class _ChatScreenState extends State<ChatScreen> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8, right: 8),
+              AssistantBlock(
                 child: MIXMarkdown(
                   data: prose,
                   selectable: true,
@@ -3172,8 +3133,7 @@ class _ChatScreenState extends State<ChatScreen> {
           );
         }
         // 助手正文直接落在画布上，不再套一层灰气泡。
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 12, right: 4),
+        return AssistantBlock(
           child: MIXMarkdown(
             data: m.text ?? '',
             selectable: true,
@@ -3204,38 +3164,18 @@ class _ChatScreenState extends State<ChatScreen> {
               ? '第 ${m.discussionRound}/${m.discussionTotalRounds} 轮 · '
                   '「${m.discussionPerspective}」思考中…'
               : '第 ${m.discussionRound}/${m.discussionTotalRounds} 轮进行中…';
-          return Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              border: Border.all(color: Theme.of(context).dividerColor),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(
-                  width: 12,
-                  height: 12,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                const SizedBox(width: 8),
-                Text('🗣️ MoA 讨论 $status',
-                    style: Theme.of(context).textTheme.bodySmall),
-              ],
-            ),
+          return ChatEventRow(
+            running: true,
+            ok: true,
+            verb: '讨论中',
+            detail: 'MoA · $status',
+            monoDetail: false,
           );
         }
         // 完成：结构化分工块（Reference N — 视角 + 观点 + 综合结论）。
-        return Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            border: Border.all(color: Theme.of(context).dividerColor),
-            borderRadius: BorderRadius.circular(8),
-          ),
+        // 不再套描边卡片，和工具行同一条阅读节奏。
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -3326,62 +3266,29 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           );
         }
-        // agent 写入笔记后的「打开笔记」深链卡。
+        // agent 写入笔记后的深链，跟工具行同一条样式，点按打开。
         if (m.toolName == 'notes_open') {
           final notePath = Services.instance.lastWrittenNotePath;
-          return Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              border: Border.all(color: context.appPalette.border),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: ListTile(
-              dense: true,
-              leading: Icon(Icons.open_in_new,
-                  size: 18, color: context.appPalette.primary),
-              title: const Text('已写入笔记库'),
-              subtitle: Text(
-                notePath == null
-                    ? '打开笔记库'
-                    : p.basename(notePath),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: const Icon(Icons.chevron_right, size: 18),
-              onTap: () => _openNote(notePath),
-            ),
+          final name = notePath == null ? '笔记库' : p.basename(notePath);
+          return ChatEventRow(
+            running: false,
+            ok: true,
+            verb: '已写入',
+            detail: name,
+            onTap: () => _openNote(notePath),
           );
         }
-        // 普通工具调用卡片。
         final running = m.toolStatus == 'running';
-        return Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            border: Border.all(color: Theme.of(context).dividerColor),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (running)
-                const SizedBox(
-                  width: 12,
-                  height: 12,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              else
-                Icon(Icons.check_circle,
-                    size: 14, color: context.appPalette.success),
-              const SizedBox(width: 8),
-              Text(
-                '🔧 ${m.toolName} ${running ? '运行中…' : '完成'}',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ),
+        final phrase = describeToolPhrase(
+          name: m.toolName ?? '',
+          running: running,
+          ok: !running,
+        );
+        return ChatEventRow(
+          running: running,
+          ok: !running,
+          verb: phrase.verb,
+          detail: phrase.arg,
         );
       default:
         return const SizedBox.shrink();

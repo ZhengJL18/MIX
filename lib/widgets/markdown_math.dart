@@ -5,20 +5,40 @@
 // ThemeProvider/SettingsProvider/EditorConfigProvider），hermes 主 App 已包
 // MultiProvider。字号/LaTeX 开关等由 printnotes 设置页控制。
 //
-// 2026-11 起增加 HTML 直出：整段内容是 HTML（```html 围栏，或裸 <div>/<table>
-// 之类的块）时交给 WebView 原生排版 —— CSS/flex/SVG/<details> 全部保真，
-// 这是 markdown 子集渲染做不到的上限。普通 markdown 仍走原引擎（更快、
-// 可选中、原生交互）。
+// HTML 直出（2026-11）：CSS/flex/SVG/<details> 这类东西只有真正的浏览器排版
+// 能还原，markdown 子集做不到，所以这部分交给 WebView。
+//
+// 分派粒度是**块**而不是整条消息：一条回答里「先一张 HTML 卡片、后面接着用
+// markdown 写说明」是常见形态，整条走 WebView 会让后面的 markdown 落到第二套
+// 实现（package:markdown 的 GFM）上，排版跟其他消息不是一个观感。切块规则见
+// html_rich.dart 的 splitHtmlBlocks。
+//
+// 流式输出期间不切块：token 是逐个到的，块边界每帧都在变，来回切会让内容在
+// 「原生 ↔ WebView」之间抖。这一段沿用「按开头锁定」（_htmlLocked）。
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-import '../printnotes/markdown/build_markdown.dart';
+import 'package:mix/printnotes/markdown/build_markdown.dart';
+import 'package:mix/printnotes/providers/editor_config_provider.dart';
+
 import 'html_rich.dart';
 
 class MIXMarkdown extends StatefulWidget {
   final String data;
   final bool selectable;
 
-  const MIXMarkdown({super.key, required this.data, this.selectable = true});
+  /// 这条内容还在流式追加。
+  ///
+  /// true 时不切块，按开头锁定一次 HTML 方向；false（默认，含从历史恢复的
+  /// 消息）才做块级分派。
+  final bool streaming;
+
+  const MIXMarkdown({
+    super.key,
+    required this.data,
+    this.selectable = true,
+    this.streaming = false,
+  });
 
   @override
   State<MIXMarkdown> createState() => _MIXMarkdownState();
@@ -43,21 +63,59 @@ class _MIXMarkdownState extends State<MIXMarkdown> {
 
   @override
   Widget build(BuildContext context) {
+    // 字号跟 printnotes 设置走。原生引擎正文用的就是
+    // `inEditor ? EditorConfigProvider.fontSize : 16`，而 buildMarkdownWidget
+    // 内部固定传 inEditor: true —— 所以这里读同一个值才能对齐。
+    final fontSize = context.watch<EditorConfigProvider>().fontSize;
     final data = widget.data;
-    if (!_htmlLocked && (isHtmlBlock(data) || startsWithHtmlBlock(data))) {
-      _htmlLocked = true;
+
+    if (widget.streaming) {
+      if (!_htmlLocked && (isHtmlBlock(data) || startsWithHtmlBlock(data))) {
+        _htmlLocked = true;
+      }
+      if (_htmlLocked) {
+        return HtmlRichView(html: htmlFromMarkdown(data), fontSize: fontSize);
+      }
+      return _native(context, data);
     }
-    if (_htmlLocked) {
-      return HtmlRichView(html: htmlFromMarkdown(data), fontSize: 15);
+
+    // 完成态：按块分派。纯 markdown 只有一段，零额外开销。
+    final pieces = splitHtmlBlocks(data);
+    if (pieces.length == 1) {
+      final only = pieces.first;
+      if (!only.isHtml) return _native(context, data);
+      return HtmlRichView(html: only.text, fontSize: fontSize);
     }
-    return buildMarkdownWidget(
-      context,
-      data: data,
-      fileUri: Uri.file(''),
-      selectable: widget.selectable,
-      // 引擎内部是 ListView，嵌在自适应高度容器（聊天气泡）里必须 shrinkWrap，
-      // 否则高度塌陷成 0 导致内容不可见。
-      shrinkWrap: true,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var i = 0; i < pieces.length; i++)
+          if (pieces[i].isHtml)
+            Padding(
+              padding: EdgeInsets.only(
+                top: i == 0 ? 0 : 6,
+                bottom: i == pieces.length - 1 ? 0 : 6,
+              ),
+              child: HtmlRichView(html: pieces[i].text, fontSize: fontSize),
+            )
+          else
+            _native(context, pieces[i].text),
+      ],
     );
   }
+
+  Widget _native(BuildContext context, String md) => buildMarkdownWidget(
+        context,
+        data: md,
+        fileUri: Uri.file(''),
+        selectable: widget.selectable,
+        // 引擎内部是 ListView，嵌在自适应高度容器（聊天气泡）里必须 shrinkWrap，
+        // 否则高度塌陷成 0 导致内容不可见。分块后会有多个并列引擎，滚动一律
+        // 交给外层列表。padding 置 0，避免安全区被算进每一条消息。
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        reading: true,
+        padding: EdgeInsets.zero,
+      );
 }

@@ -47,6 +47,32 @@ class LatexSyntax extends m.InlineSyntax {
   }
 }
 
+/// 公式怎么排。块级用 display（上下标、大型运算符），行内用 text，
+/// 避免把正文行高撑开。行内里若塞了矩阵或换行，仍按块级处理。
+class LatexLayout {
+  const LatexLayout({
+    required this.block,
+    required this.mathStyle,
+    required this.scale,
+  });
+
+  final bool block;
+  final MathStyle mathStyle;
+  final double scale;
+
+  factory LatexLayout.of({required bool isInline, required String content}) {
+    final block =
+        !isInline || content.contains('\\begin') || content.contains('\n');
+    return LatexLayout(
+      block: block,
+      // display 自己会把运算符放大，不要再叠一层 1.2 的 textScale，
+      // 否则块公式会比正文大出一圈。行内保持 1.0，跟着正文字号走。
+      mathStyle: block ? MathStyle.display : MathStyle.text,
+      scale: block ? 1.05 : 1.0,
+    );
+  }
+}
+
 class LatexNode extends SpanNode {
   final Map<String, String> attributes;
   final String textContent;
@@ -60,19 +86,19 @@ class LatexNode extends SpanNode {
     final isInline = attributes['isInline'] == 'true';
     final style = parentStyle ?? config.p.textStyle;
     if (content.isEmpty) return TextSpan(style: style, text: textContent);
-    // 行内公式里写了矩阵/方程组等大结构（\begin…\end 或含换行）时，
-    // 仍按块级渲染：独占一行 + 大上下间距，避免 5 行高的矩阵把文本行
-    // 撑爆、上下文字紧贴矩阵边缘（"叠在一起很难受"）。
-    final isBlockLike =
-        !isInline || content.contains('\\begin') || content.contains('\n');
-    // 字号比例：原来统一 1.5，行内公式会把正文行高硬撑起来（正文 16px
-    // 配 24px 公式），一行字下面拖一大块白 —— 这是"公式看着别扭"的根因。
-    // 行内按 1.08 跟着正文走，块级给 1.22 保持可读。
-    final scale = isBlockLike ? 1.22 : 1.08;
+    final layout = LatexLayout.of(isInline: isInline, content: content);
+    // 把周围正文的颜色传进去。不传的话 flutter_math 默认黑色，
+    // 深色画布上公式会看不见。
+    final paint = style.copyWith(
+      color: style.color,
+      fontSize: style.fontSize ?? 16,
+      height: 1,
+    );
     final latex = Math.tex(
       content,
-      mathStyle: MathStyle.text,
-      textScaleFactor: scale,
+      mathStyle: layout.mathStyle,
+      textScaleFactor: layout.scale,
+      textStyle: paint,
       onErrorFallback: (error) {
         // 渲染失败时不要甩一行刺眼的纯红原文：标成错误色 + 等宽字体，
         // 至少让人看出"这是公式没渲染出来"，而不是以为回答里就写着这些符号。
@@ -89,7 +115,7 @@ class LatexNode extends SpanNode {
     );
     return WidgetSpan(
       alignment: PlaceholderAlignment.middle,
-      child: isBlockLike
+      child: layout.block
           ? Container(
               width: double.infinity,
               margin: const EdgeInsets.symmetric(vertical: 10),
