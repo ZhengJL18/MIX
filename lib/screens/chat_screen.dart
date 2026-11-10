@@ -529,22 +529,47 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) setState(() => _bridgeWanted = true);
       if (forceNew) await BridgeConfig.clearSessionId();
       client = BridgeClient(baseUrl: cfg.baseUrl, token: cfg.token);
+      final savedId = forceNew ? null : await BridgeConfig.loadSessionId();
+      if (gen != _bridgeGen) {
+        client.close();
+        return;
+      }
       final ok = await client.health();
       if (gen != _bridgeGen) {
         client.close();
         return;
       }
       if (!ok) {
+        final why = client.lastHealthError ?? '检查网络和 token';
+        // 连不上不等于没内容可看：服务端是金标准，但盘上有上次的完整快照。
+        // 没有历史会话时才真的没东西可展示，仍走错误态。
+        if (savedId != null) {
+          final ctl = BridgeSessionController(client: client, sessionId: savedId);
+          ctl.addListener(_onBridge);
+          await ctl.loadHistory(cacheOnly: true);
+          if (gen != _bridgeGen || !mounted) {
+            ctl.removeListener(_onBridge);
+            ctl.dispose();
+            client.close();
+            return;
+          }
+          setState(() {
+            _bridgeClient = client;
+            _bridge = ctl;
+            _bridgeChecking = false;
+            _bridgeError = '离线：显示本地缓存（$why）';
+          });
+          return;
+        }
         client.close();
         if (mounted) {
           setState(() {
             _bridgeChecking = false;
-            _bridgeError = '连不上 ${cfg.baseUrl}。检查网络和 token。';
+            _bridgeError = '连不上 ${cfg.baseUrl}。$why';
           });
         }
         return;
       }
-      final savedId = forceNew ? null : await BridgeConfig.loadSessionId();
       BridgeSession session;
       if (savedId != null) {
         try {
@@ -607,6 +632,7 @@ class _ChatScreenState extends State<ChatScreen> {
     if (_bridgeChecking) return '正在连接云端';
     if (!_bridgeWanted) return '本地';
     if (_bridgeError != null && _bridge == null) return '云端未连通';
+    if (_bridgeError != null && _bridge != null) return '离线 · 本地缓存';
     switch (_bridge?.status) {
       case BridgeStatus.live:
         return '云端';
@@ -2425,8 +2451,7 @@ class _ChatScreenState extends State<ChatScreen> {
             ),
           ),
           if (!_bridgeWanted && !_bridgeChecking) _localFallbackBanner(),
-          if (_bridgeWanted && _bridgeError != null && _bridge == null)
-            _bridgeErrorBanner(),
+          if (_bridgeWanted && _bridgeError != null) _bridgeErrorBanner(),
           if (_busy || (_bridgeWanted && _bridgeChecking))
             const LinearProgressIndicator(minHeight: 2),
           SafeArea(

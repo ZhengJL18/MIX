@@ -216,7 +216,9 @@ class BridgeSessionController extends ChangeNotifier {
   ///
   /// 覆盖成功后把本地 SSE 游标对齐到服务端水位。少了这一步，`start()` 会从旧
   /// 游标重新 replay 历史事件，和刚拿到的投影叠成重复气泡。
-  Future<void> loadHistory() async {
+  /// [cacheOnly] 时只铺盘上的快照，不碰网络 —— 断网启动走这条路，
+  /// 免得先等 15s 请求超时才能看见内容。
+  Future<void> loadHistory({bool cacheOnly = false}) async {
     // ── 1. 盘上的先上屏 ──
     // 正在出字的时候不铺缓存：那会把流式内容整段清掉、闪回旧快照。
     try {
@@ -231,6 +233,8 @@ class BridgeSessionController extends ChangeNotifier {
     } catch (_) {
       // 缓存读失败不影响主路径：下面还有网络。
     }
+
+    if (cacheOnly) return;
 
     // ── 2. 服务端覆盖 ──
     try {
