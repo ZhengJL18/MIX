@@ -88,9 +88,26 @@ class BridgeClient {
       if (!ok) lastHealthError = '响应不是 healthz 格式';
       return ok;
     } catch (e) {
-      lastHealthError = '$e';
+      lastHealthError = _humanize(e);
       return false;
     }
+  }
+
+  /// 把底层异常翻成人话。原始字符串会一路显示到状态栏和横幅里，
+  /// 「ClientException with SocketException: Failed host lookup…」没人读得懂。
+  static String _humanize(Object e) {
+    final s = '$e';
+    if (s.contains('Failed host lookup') || s.contains('No address associated')) {
+      return '域名解析失败（DNS）';
+    }
+    if (s.contains('Connection refused')) return '连接被拒绝（端口没监听）';
+    if (s.contains('连接超时')) return '连接超时（候选地址均无响应）';
+    if (s.contains('TimeoutException') || s.contains('timed out')) return '请求超时';
+    if (s.contains('HandshakeException') || s.contains('CERTIFICATE')) {
+      return 'TLS 握手失败（证书或中间人）';
+    }
+    if (s.contains('Network is unreachable')) return '网络不可达（没连上网）';
+    return s.length > 120 ? '${s.substring(0, 120)}…' : s;
   }
 
   /// 会话列表。
