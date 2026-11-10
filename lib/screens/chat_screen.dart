@@ -3131,13 +3131,10 @@ class _ChatScreenState extends State<ChatScreen> {
               color: context.appPalette.bubble,
               borderRadius: BorderRadius.circular(16),
             ),
-            child: Text(
-              m.text ?? '',
-              style: TextStyle(
-                color: context.appPalette.textPrimary,
-                height: 1.4,
-              ),
-            ),
+            // 用户消息走同一条渲染管线：公式/代码块/HTML 与助手侧观感一致。
+            child: (m.text ?? '').isEmpty
+                ? const SizedBox.shrink()
+                : MIXMarkdown(data: m.text ?? '', selectable: true),
           ),
         );
       case 'reasoning':

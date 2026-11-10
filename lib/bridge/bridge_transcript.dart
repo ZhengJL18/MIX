@@ -82,10 +82,10 @@ class _BridgeBubbleView extends StatelessWidget {
           color: palette.bubble,
           borderRadius: BorderRadius.circular(16),
         ),
-        child: Text(
-          bubble.text,
-          style: TextStyle(color: palette.textPrimary, height: 1.4),
-        ),
+        // 用户消息走同一条渲染管线：公式/代码块/HTML 与助手侧观感一致。
+        child: bubble.text.isEmpty
+            ? const SizedBox.shrink()
+            : MIXMarkdown(data: bubble.text, selectable: true),
       ),
     );
   }
