@@ -9,7 +9,7 @@
 
 **MIX 是 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 的纯 Dart 复刻**：在 Flutter 沙盒里用 Dart 逐文件重写其核心闭环，把"会自己调工具的 AI"塞进一个 APK。它不是又一个聊天机器人，而是一个能在你手机上真干活的通用智能体。
 
-桌面启动名是 **Claude**。界面配色、气泡和强调色跟随 `dsh-claude-style` 的 Claude 色卡（陶土橙 `#d97757`，浅色画布 `#ffffff` / 侧栏 `#fafafa`，深色画布 `#191919` / 侧栏 `#1f1f1f`），观感对齐 Claude Code Desktop。这是一层皮肤，**不是 Anthropic 官方客户端**，与 Anthropic 无隶属关系。安装包名仍是 `com.mix.app`，覆盖更新会保留原来的数据。
+桌面启动名是 **MIX**，图标沿用 Jailer。界面配色、气泡和强调色跟随 `dsh-claude-style` 的 Claude 色卡（陶土橙 `#d97757`，浅色画布 `#ffffff` / 侧栏 `#fafafa`，深色画布 `#191919` / 侧栏 `#1f1f1f`），观感对齐 Claude Code Desktop。这是一层皮肤，**不是 Anthropic 官方客户端**，与 Anthropic 无隶属关系。安装包名仍是 `com.mix.app`，覆盖更新会保留原来的数据。
 
 ## 为什么是 MIX
 
