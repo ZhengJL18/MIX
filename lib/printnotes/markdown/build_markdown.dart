@@ -32,6 +32,7 @@ import 'package:mix/printnotes/markdown/rendering/note_tags.dart';
 import 'package:mix/printnotes/markdown/link_handler.dart';
 import 'package:mix/printnotes/markdown/rendering/remote_code_block.dart';
 import 'package:mix/printnotes/markdown/rendering/code_engine.dart';
+import 'package:mix/widgets/html_rich.dart';
 
 MarkdownConfig theMarkdownConfigs(
   BuildContext context, {
@@ -52,6 +53,8 @@ MarkdownConfig theMarkdownConfigs(
     // 注册内置引擎（幂等：重复注册同名会覆盖，但无害）。
     // 新增语言 = 新建 CodeEngine 实现 + 在这里注册一行（或引擎内部自注册）。
     CodeEngineRegistry.register(const MermaidCodeEngine());
+    // ```html：直接出预览（WebView 原生排版），带「预览/源码」切换。
+    CodeEngineRegistry.register(const HtmlCodeEngine());
     // 云端执行引擎：所有可执行语言统一 POST 到服务器执行，App 只渲染结果。
     // mermaid 是图表渲染（非执行），保留本地渲染。
     CodeEngineRegistry.register(
