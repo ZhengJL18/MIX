@@ -11,6 +11,11 @@
 /// 做法：自己解析地址，首个先连，[stagger] 内没连上就并行连下一个，
 /// 谁先握手成功算谁的，赢家交给 HttpClient（`ConnectionTask.fromSocket`），
 /// 输掉的那些连上后立刻销毁，不留半开连接。
+///
+/// 注意：一旦设置 [HttpClient.connectionFactory]，SDK 就不再替你套 TLS
+/// （它只在「没有 factory」的分支里用 `SecureSocket.startConnect`），
+/// https 必须自己 [SecureSocket.secure] 升级，否则就是明文打 443 端口，
+/// 服务端只会回一个 400。
 library;
 
 import 'dart:async';
@@ -20,35 +25,56 @@ import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
 /// 建一个会做地址族竞争的 [http.Client]。
+///
+/// [onBadCertificate] 对应 [HttpClient.badCertificateCallback]：dart:io 只提供
+/// setter 没有 getter，自己套 TLS 时拿不到原值，需要时由调用方显式传入。
 http.Client buildHardenedHttpClient({
   Duration connectTimeout = const Duration(seconds: 8),
   Duration stagger = const Duration(milliseconds: 250),
+  bool Function(X509Certificate cert, String host, int port)? onBadCertificate,
 }) {
   final io = HttpClient()..connectionTimeout = connectTimeout;
+
   io.connectionFactory = (uri, proxyHost, proxyPort) async {
-    // 走代理时不参与竞争：握手目标不是域名本身。
+    // 走代理时不参与竞争：握手目标不是域名本身，TLS 由 SDK 在 CONNECT 之后处理。
     if (proxyHost != null && proxyPort != null) {
       return ConnectionTask.fromSocket(Socket.connect(proxyHost, proxyPort), () {});
     }
-    List<InternetAddress> addrs;
-    try {
-      addrs = await InternetAddress.lookup(uri.host);
-    } on Object {
-      addrs = const <InternetAddress>[];
-    }
-    if (addrs.isEmpty) {
-      // 解析交给系统默认路径，错误信息保持原样。
-      return ConnectionTask.fromSocket(Socket.connect(uri.host, uri.port), () {});
-    }
-    final socket = raceConnect(
-      addrs,
-      uri.port,
-      stagger: stagger,
-      budget: connectTimeout,
+
+    final raw = _raceForUri(uri, stagger: stagger, budget: connectTimeout);
+    if (uri.scheme != 'https') return ConnectionTask.fromSocket(raw, () {});
+
+    final secure = raw.then(
+      (s) => SecureSocket.secure(
+        s,
+        host: uri.host,
+        context: SecurityContext.defaultContext,
+        onBadCertificate: onBadCertificate == null
+            ? null
+            : (cert) => onBadCertificate(cert, uri.host, uri.port),
+      ),
     );
-    return ConnectionTask.fromSocket(socket, () {});
+    return ConnectionTask.fromSocket(secure, () {});
   };
   return IOClient(io);
+}
+
+Future<Socket> _raceForUri(
+  Uri uri, {
+  required Duration stagger,
+  required Duration budget,
+}) async {
+  List<InternetAddress> addrs;
+  try {
+    addrs = await InternetAddress.lookup(uri.host);
+  } on Object {
+    addrs = const <InternetAddress>[];
+  }
+  if (addrs.isEmpty) {
+    // 解析交给系统默认路径，错误信息保持原样。
+    return Socket.connect(uri.host, uri.port);
+  }
+  return raceConnect(addrs, uri.port, stagger: stagger, budget: budget);
 }
 
 /// 并发尝试 [addrs]，返回最先握手成功的 Socket。
