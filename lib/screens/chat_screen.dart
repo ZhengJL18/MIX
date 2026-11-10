@@ -557,7 +557,7 @@ class _ChatScreenState extends State<ChatScreen> {
             _bridgeClient = client;
             _bridge = ctl;
             _bridgeChecking = false;
-            _bridgeError = '离线：显示本地缓存（$why）';
+            _bridgeError = '离线：显示本地缓存 · $why';
           });
           return;
         }
