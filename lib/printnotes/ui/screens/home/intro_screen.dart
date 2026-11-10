@@ -12,8 +12,8 @@ class IntroScreen extends StatelessWidget {
     return IntroductionScreen(
       pages: [
         PageViewModel(
-          title: "欢迎使用 Claude 笔记库",
-          body: "你的 Markdown 笔记库,与 Claude 共用同一目录,"
+          title: "欢迎使用 MIX 笔记库",
+          body: "你的 Markdown 笔记库,与 MIX 共用同一目录,"
               "agent 写的笔记这里能看到,这里编辑的笔记 agent 能读到。",
           image: Center(
               child: Icon(

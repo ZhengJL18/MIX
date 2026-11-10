@@ -50,7 +50,7 @@ class DrawerView extends StatelessWidget {
                     duration: const Duration(milliseconds: 250),
                     curve: Curves.fastOutSlowIn,
                     child: Image.asset(
-                      'assets/brand/claude_mark.png',
+                      'assets/brand/mix_mark.png',
                       width: 48,
                       height: 48,
                     ),

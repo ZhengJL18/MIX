@@ -122,7 +122,7 @@ class MIXApp extends StatelessWidget {
             valueListenable: themeController.brightnessNotifier,
             builder: (context, brightness, child) {
               return MaterialApp(
-                title: 'Claude',
+                title: 'MIX',
                 theme: themeController.themeData,
                 home: const ChatScreen(),
               );

@@ -32,10 +32,10 @@ class AboutScreen extends StatelessWidget {
           child: Column(
             children: [
               const SizedBox(height: 8),
-              Image.asset('assets/brand/claude_mark.png',
+              Image.asset('assets/brand/mix_mark.png',
                   width: 56, height: 56),
               const SizedBox(height: 8),
-              Text('Claude',
+              Text('MIX',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold)),
               Text('v$appVersion',

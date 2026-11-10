@@ -493,7 +493,7 @@ class _ChatScreenState extends State<ChatScreen> {
     return client.createSession(
       harness: cfg.harness.isEmpty ? 'claude' : cfg.harness,
       model: cfg.model.trim().isEmpty ? null : cfg.model.trim(),
-      title: 'Claude',
+      title: 'MIX',
     );
   }
 
@@ -2166,13 +2166,13 @@ class _ChatScreenState extends State<ChatScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             const Image(
-              image: AssetImage('assets/brand/claude_mark.png'),
+              image: AssetImage('assets/brand/mix_mark.png'),
               width: 40,
               height: 40,
             ),
             const SizedBox(height: 14),
             Text(
-              'Claude',
+              'MIX',
               style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w600,
                     letterSpacing: -0.3,
@@ -2241,7 +2241,7 @@ class _ChatScreenState extends State<ChatScreen> {
         title: Row(
           children: [
             const Image(
-              image: AssetImage('assets/brand/claude_mark.png'),
+              image: AssetImage('assets/brand/mix_mark.png'),
               width: 22,
               height: 22,
             ),
@@ -2249,7 +2249,7 @@ class _ChatScreenState extends State<ChatScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Claude'),
+                const Text('MIX'),
                 Text(
                   _chatStatus,
                   style: TextStyle(
@@ -2368,13 +2368,13 @@ class _ChatScreenState extends State<ChatScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           const Image(
-                            image: AssetImage('assets/brand/claude_mark.png'),
+                            image: AssetImage('assets/brand/mix_mark.png'),
                             width: 40,
                             height: 40,
                           ),
                           const SizedBox(height: 14),
                           Text(
-                            'Claude',
+                            'MIX',
                             style: Theme.of(context)
                                 .textTheme
                                 .headlineSmall
@@ -2666,7 +2666,7 @@ class _ChatScreenState extends State<ChatScreen> {
               Icon(Icons.help_outline,
                   size: 16, color: Theme.of(context).colorScheme.primary),
               const SizedBox(width: 6),
-              Text('Claude 想确认一下',
+              Text('MIX 想确认一下',
                   style: TextStyle(
                     fontSize: 12,
                     color: context.appPalette.textPrimary,
@@ -3658,7 +3658,7 @@ class _QuizCardsViewState extends State<_QuizCardsView> {
             Text('错题：${wrongIdx.map((i) => '第 ${i + 1} 题').join('、')}',
                 style: Theme.of(context).textTheme.bodyMedium),
           const SizedBox(height: 12),
-          Text('Claude 正在讲解错题…', style: Theme.of(context).textTheme.bodySmall),
+          Text('MIX 正在讲解错题…', style: Theme.of(context).textTheme.bodySmall),
         ],
       ),
     );
