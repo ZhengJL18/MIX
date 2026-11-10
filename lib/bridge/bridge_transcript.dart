@@ -8,8 +8,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
-import 'package:mix/theme/app_theme.dart';
 import 'package:mix/theme/theme_ext.dart';
+import 'package:mix/widgets/chat_chrome.dart';
 import 'package:mix/widgets/markdown_math.dart';
 
 import 'bridge_session_controller.dart';
@@ -71,97 +71,27 @@ class _BridgeBubbleView extends StatelessWidget {
   }
 
   Widget _user(BuildContext context) {
-    final palette = context.appPalette;
-    return Align(
-      alignment: Alignment.centerRight,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 12, left: 48),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.82),
-        decoration: BoxDecoration(
-          color: palette.bubble,
-          borderRadius: BorderRadius.circular(16),
-        ),
-        // 用户消息走同一条渲染管线：公式/代码块/HTML 与助手侧观感一致。
-        child: bubble.text.isEmpty
-            ? const SizedBox.shrink()
-            : MIXMarkdown(data: bubble.text, selectable: true),
-      ),
+    if (bubble.text.isEmpty) return const SizedBox.shrink();
+    // 用户消息走同一条渲染管线：公式/代码块/HTML 与助手侧观感一致。
+    return ChatUserBubble(
+      child: MIXMarkdown(data: bubble.text, selectable: true),
     );
   }
 
   Widget _thinking(BuildContext context) {
-    final palette = context.appPalette;
     final showBody = bubble.streaming || !bubble.collapsed;
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.92),
-        decoration: BoxDecoration(
-          color: palette.sidebar,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            InkWell(
-              onTap: bubble.streaming ? null : () => onToggleThinking?.call(bubble),
-              child: Row(
-                children: [
-                  Icon(Icons.psychology_outlined, size: 14, color: palette.inkTertiary),
-                  const SizedBox(width: 6),
-                  Text(
-                    bubble.streaming ? '思考中…' : '已思考',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontStyle: FontStyle.italic,
-                      color: palette.inkTertiary,
-                    ),
-                  ),
-                  if (bubble.streaming) ...[
-                    const SizedBox(width: 8),
-                    SizedBox(
-                      width: 10,
-                      height: 10,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 1.5,
-                        color: palette.inkTertiary,
-                      ),
-                    ),
-                  ] else
-                    Icon(
-                      showBody ? Icons.expand_less : Icons.expand_more,
-                      size: 16,
-                      color: palette.inkTertiary,
-                    ),
-                ],
-              ),
-            ),
-            if (showBody && bubble.text.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                bubble.text,
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.4,
-                  fontStyle: FontStyle.italic,
-                  color: palette.inkTertiary,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
+    return ThinkingBlock(
+      text: bubble.text,
+      streaming: bubble.streaming,
+      expanded: showBody,
+      onToggle: bubble.streaming ? null : () => onToggleThinking?.call(bubble),
     );
   }
 
   Widget _assistant(BuildContext context) {
     final palette = context.appPalette;
     final segs = bubble.segments;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12, right: 4),
+    return AssistantBlock(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -205,20 +135,7 @@ class _BridgeBubbleView extends StatelessWidget {
   }
 
   Widget _system(BuildContext context) {
-    final palette = context.appPalette;
-    final scheme = Theme.of(context).colorScheme;
-    final failed = bubble.error != null;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        bubble.text,
-        style: TextStyle(
-          fontSize: 12,
-          height: 1.4,
-          color: failed ? scheme.error : palette.inkTertiary,
-        ),
-      ),
-    );
+    return ChatMetaLine(text: bubble.text, failed: bubble.error != null);
   }
 }
 
@@ -245,93 +162,22 @@ class _ToolRowState extends State<_ToolRow> {
 
   @override
   Widget build(BuildContext context) {
-    final palette = context.appPalette;
     final t = widget.call;
-    final label = _describe(t);
-    final tint = label.failed ? palette.danger : palette.inkTertiary;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        InkWell(
-          onTap: () => setState(() => _open = !_open),
-          borderRadius: BorderRadius.circular(6),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 2),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _statusIcon(t, palette),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text.rich(
-                    TextSpan(
-                      children: [
-                        TextSpan(
-                          text: label.verb,
-                          style: TextStyle(
-                            color: tint,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        if (label.arg.isNotEmpty)
-                          TextSpan(
-                            text: ' ${label.arg}',
-                            style: TextStyle(
-                              color: tint.withValues(alpha: 0.72),
-                              fontFamily: 'monospace',
-                            ),
-                          ),
-                      ],
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12.5, height: 1.35),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Padding(
-                  padding: const EdgeInsets.only(top: 1),
-                  child: Icon(
-                    _open ? Icons.expand_less : Icons.expand_more,
-                    size: 14,
-                    color: palette.inkTertiary.withValues(alpha: 0.55),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (_open) _details(context, t),
-      ],
+    final label = describeToolPhrase(
+      name: t.name,
+      running: t.running,
+      ok: t.ok,
+      input: t.input,
     );
-  }
 
-  /// 状态位：运行中是转圈，完成是对勾，失败是叉。固定 14×14，让每一行的
-  /// 文字起点对齐。
-  Widget _statusIcon(BridgeToolCall t, AppPalette palette) {
-    if (t.running) {
-      return SizedBox(
-        width: 14,
-        height: 14,
-        child: Padding(
-          padding: const EdgeInsets.all(1),
-          child: CircularProgressIndicator(
-            strokeWidth: 1.4,
-            color: palette.inkTertiary,
-          ),
-        ),
-      );
-    }
-    return SizedBox(
-      width: 14,
-      height: 14,
-      child: Icon(
-        t.ok ? Icons.check_rounded : Icons.close_rounded,
-        size: 13,
-        color: t.ok ? palette.success : palette.danger,
-      ),
+    return ChatEventRow(
+      running: t.running,
+      ok: t.ok,
+      verb: label.verb,
+      detail: label.arg,
+      expanded: _open,
+      onToggle: () => setState(() => _open = !_open),
+      details: _open ? _details(context, t) : null,
     );
   }
 
@@ -419,88 +265,4 @@ class _ToolRowState extends State<_ToolRow> {
       return '$v';
     }
   }
-
-  /// 工具名 + input → 一行「动词 + 参数」。参照 Claude 的动词化文案：
-  /// 运行中用现在时，完成后用完成时，失败直接把动词换成「…失败」。
-  _ToolLabel _describe(BridgeToolCall t) {
-    final input = t.input;
-    String pick(List<String> keys) {
-      for (final k in keys) {
-        final v = input[k];
-        if (v is String && v.trim().isNotEmpty) return _oneLine(v);
-      }
-      return '';
-    }
-
-    final n = t.name.toLowerCase();
-    String zh;
-    if (_reTask.hasMatch(n)) {
-      zh = '更新任务';
-    } else if (_reThink.hasMatch(n)) {
-      zh = '思考';
-    } else if (_reRead.hasMatch(n)) {
-      zh = '读取';
-    } else if (_reWrite.hasMatch(n)) {
-      zh = '写入';
-    } else if (_reEdit.hasMatch(n)) {
-      zh = '修改';
-    } else if (_reRun.hasMatch(n)) {
-      zh = '运行';
-    } else if (_reSearch.hasMatch(n)) {
-      zh = '搜索';
-    } else if (_reFetch.hasMatch(n)) {
-      zh = '抓取';
-    } else {
-      zh = '调用';
-    }
-
-    var arg = pick(const [
-      'file_path', 'path', 'file', 'target_file', 'notebook_path',
-      'dir', 'cwd', 'command', 'cmd', 'script',
-      'query', 'pattern', 'glob', 'regex',
-      'url', 'href', 'prompt', 'description',
-    ]);
-    // 通用动词没有参数时用工具名兜底，否则「已调用」后面空着没有信息量。
-    if (arg.isEmpty && zh == '调用') arg = t.name;
-
-    final failed = !t.running && !t.ok;
-    final String verb;
-    if (failed) {
-      verb = '$zh失败';
-    } else if (t.running) {
-      verb = '正在$zh';
-    } else {
-      verb = '已$zh';
-    }
-    return _ToolLabel(verb: verb, arg: arg, failed: failed);
-  }
-
-  /// 参数摘要只能占一行：换行会把整块顶高，也不再是「一行工具调用」。
-  static String _oneLine(String s) {
-    final t = s.replaceAll(RegExp(r'\s+'), ' ').trim();
-    return t.length > 64 ? '${t.substring(0, 64)}…' : t;
-  }
 }
-
-class _ToolLabel {
-  const _ToolLabel({
-    required this.verb,
-    required this.arg,
-    required this.failed,
-  });
-
-  final String verb;
-  final String arg;
-  final bool failed;
-}
-
-// 工具名归类。放文件级是因为流式输出时这条行每帧都会重建，在 build 里现造
-// RegExp 是纯浪费。顺序有意义：先认「任务」，否则 TodoWrite 会被 write 抢走。
-final RegExp _reTask = RegExp(r'todo|task|plan');
-final RegExp _reThink = RegExp(r'think|reason');
-final RegExp _reRead = RegExp(r'read|cat|view|open|^ls$|list|stat');
-final RegExp _reWrite = RegExp(r'write|create|save|append|touch|mkdir');
-final RegExp _reEdit = RegExp(r'edit|patch|replace|update|insert|modify');
-final RegExp _reRun = RegExp(r'bash|shell|exec|^run|command|terminal');
-final RegExp _reSearch = RegExp(r'grep|search|find|glob|query|locate');
-final RegExp _reFetch = RegExp(r'fetch|http|curl|download|browse|web');

@@ -12,7 +12,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # 发 GitHub Release 需要 contents: write（仓库默认 token 是 read-only）
+    # 发 GitHub Release 需要 contents: write。仓库默认 GITHUB_TOKEN 是
+    # read-only，这个权限必须写在「真正创建 Release 的这个 job」上。
+    # 它已经生效：master 的 Publish GitHub Release 步骤会成功建出 Release
+    # （例如 v1.0.0+241）。标题以前仍是 Hermes，是因为下面的 name 写死了
+    # 「Hermes v…」，不是权限没给到，也不是另一个 job 在发版。
     permissions:
       contents: write
     steps:
@@ -98,24 +102,42 @@ jobs:
       - name: Build APK (release)
         run: flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}
 
+      # Flutter 默认产物叫 app-release.apk。Release 附件用的是文件名，
+      # 不改名的话页面上仍是 app-release.apk，对不上 MIX。更新检查只认
+      # 「名字以 .apk 结尾」，改名不影响自更新。tag 仍是 v1.0.0+N，
+      # App 从 tag 末尾解析 build number。
+      - name: Name MIX APK
+        id: apk
+        run: |
+          set -euo pipefail
+          build="${{ github.run_number }}"
+          src="build/app/outputs/flutter-apk/app-release.apk"
+          dest="build/app/outputs/flutter-apk/MIX-${build}.apk"
+          test -f "$src"
+          mv "$src" "$dest"
+          {
+            echo "file=$dest"
+            echo "tag=v1.0.0+${build}"
+            echo "title=MIX v1.0.0+${build}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mix-release
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: MIX-${{ github.run_number }}
+          path: ${{ steps.apk.outputs.file }}
           if-no-files-found: error
 
-      # push 才发 release（PR 只构建验证不发布）。
+      # push 才发 release（PR 只构建验证不发布）。标题是 MIX，不是 Hermes。
       - name: Publish GitHub Release
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.0+${{ github.run_number }}
-          name: Hermes v1.0.0+${{ github.run_number }}
+          tag_name: ${{ steps.apk.outputs.tag }}
+          name: ${{ steps.apk.outputs.title }}
           body: |
             自动构建发布（commit ${{ github.sha }}）
 
             ${{ github.event.head_commit.message }}
-          files: |
-            build/app/outputs/flutter-apk/app-release.apk
+          files: ${{ steps.apk.outputs.file }}
           generate_release_notes: true

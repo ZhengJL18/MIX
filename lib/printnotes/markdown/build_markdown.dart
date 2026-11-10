@@ -39,6 +39,7 @@ MarkdownConfig theMarkdownConfigs(
   required Uri fileUri,
   bool? hideCodeButtons,
   bool inEditor = false,
+  bool reading = false,
   Color? textColor,
   TextEditingController? editingController,
   Future<void> Function()? onCheckboxToggle,
@@ -46,6 +47,9 @@ MarkdownConfig theMarkdownConfigs(
   final isDark = Theme.of(context).brightness == Brightness.dark;
   final config =
       isDark ? MarkdownConfig.darkConfig : MarkdownConfig.defaultConfig;
+  // 显式墨色：公式节点读的是这段 TextStyle.color。留 null 时
+  // flutter_math 落到黑色，深色对话里公式会消失。
+  final ink = textColor ?? Theme.of(context).colorScheme.onSurface;
 
   final userCodeHighlight = context.watch<ThemeProvider>().codeHighlight;
 
@@ -82,43 +86,45 @@ MarkdownConfig theMarkdownConfigs(
     PConfig(
       textStyle: TextStyle(
         fontSize: inEditor ? editorFontSize : 16,
-        color: textColor,
+        // 对话阅读行高。笔记编辑器不传 reading，保持引擎原有行距。
+        height: reading ? 1.65 : null,
+        color: ink,
       ),
     ),
     H1Config(
       style: TextStyle(
         fontSize: inEditor ? editorFontSize + 16 : 32,
-        color: textColor,
+        color: ink,
       ),
     ),
     H2Config(
       style: TextStyle(
         fontSize: inEditor ? editorFontSize + 8 : 24,
-        color: textColor,
+        color: ink,
       ),
     ),
     H3Config(
       style: TextStyle(
         fontSize: inEditor ? editorFontSize + 4 : 20,
-        color: textColor,
+        color: ink,
       ),
     ),
     H4Config(
       style: TextStyle(
         fontSize: inEditor ? editorFontSize : 16,
-        color: textColor,
+        color: ink,
       ),
     ),
     H5Config(
       style: TextStyle(
         fontSize: inEditor ? editorFontSize : 16,
-        color: textColor,
+        color: ink,
       ),
     ),
     H6Config(
       style: TextStyle(
         fontSize: inEditor ? editorFontSize : 16,
-        color: textColor,
+        color: ink,
       ),
     ),
     ListConfig(marginLeft: editorFontSize * 1.5),
@@ -235,8 +241,11 @@ Map<String, TextStyle> _codeThemeNoBg(Map<String, TextStyle> theme) {
   return copy;
 }
 
-MarkdownGenerator theMarkdownGenerators(BuildContext context,
-    {double? textScale}) {
+MarkdownGenerator theMarkdownGenerators(
+  BuildContext context, {
+  double? textScale,
+  EdgeInsets linesMargin = const EdgeInsets.symmetric(vertical: 8),
+}) {
   // Not an elegant way to customize, but it works
   SpanNodeGeneratorWithTag noteTagGenerator = SpanNodeGeneratorWithTag(
       tag: 'noteTag',
@@ -248,6 +257,7 @@ MarkdownGenerator theMarkdownGenerators(BuildContext context,
           ));
 
   return MarkdownGenerator(
+    linesMargin: linesMargin,
     generators: [
       if (context.watch<SettingsProvider>().useLatex) latexGenerator,
       noteTagGenerator,
@@ -285,6 +295,8 @@ Widget buildMarkdownWidget(
   ScrollPhysics? physics,
   bool shrinkWrap = false,
   bool? selectable,
+  bool reading = false,
+  EdgeInsetsGeometry? padding,
   TextEditingController? editingController,
   Future<void> Function()? onCheckboxToggle,
 }) {
@@ -299,13 +311,22 @@ Widget buildMarkdownWidget(
     physics: physics,
     shrinkWrap: shrinkWrap,
     selectable: selectable ?? true,
+    // 嵌在气泡里时必须显式给 0。ListView 的 padding 为 null 会吃掉
+    // MediaQuery 安全区，每条消息上下都被状态栏高度撑开。
+    padding: padding,
     config: theMarkdownConfigs(
       context,
       fileUri: fileUri,
       inEditor: true,
+      reading: reading,
       editingController: editingController,
       onCheckboxToggle: onCheckboxToggle,
     ),
-    markdownGenerator: theMarkdownGenerators(context),
+    markdownGenerator: theMarkdownGenerators(
+      context,
+      linesMargin: reading
+          ? const EdgeInsets.only(bottom: 8)
+          : const EdgeInsets.symmetric(vertical: 8),
+    ),
   );
 }

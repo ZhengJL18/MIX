@@ -14,6 +14,7 @@ import 'bridge_settings_page.dart';
 
 import 'package:mix/theme/app_theme.dart';
 import 'package:mix/theme/theme_ext.dart';
+import 'package:mix/widgets/chat_chrome.dart';
 
 import 'bridge_transcript.dart';
 
@@ -204,7 +205,12 @@ class _BridgeChatPageState extends State<BridgeChatPage> {
       body: _booting
           ? const Center(child: CircularProgressIndicator(strokeWidth: 2.5))
           : _fatal != null
-          ? _ErrorView(message: _fatal!, onConfigure: _openSettings)
+          ? ChatEmptyState(
+              title: '连不上云端',
+              body: _fatal!,
+              actionLabel: '去配置',
+              onAction: _openSettings,
+            )
           : Column(
               children: [
                 Expanded(child: _messageList()),
@@ -265,43 +271,10 @@ class _BridgeChatPageState extends State<BridgeChatPage> {
   }
 
   Widget _emptyState() {
-    final palette = context.appPalette;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Opacity(
-              opacity: 0.92,
-              child: Image.asset(
-                'assets/brand/mix_mark.png',
-                width: 56,
-                height: 56,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              '服务器已就绪',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: palette.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              '直接发指令，任务在服务器上跑。\n断网、切后台都不会丢进度。',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                height: 1.5,
-                color: palette.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return const ChatEmptyState(
+      title: 'MIX',
+      body: '从这里开始。思考、工具和公式都留在这条对话里。',
+      largeTitle: true,
     );
   }
 
@@ -335,14 +308,14 @@ class _BridgeChatPageState extends State<BridgeChatPage> {
                   // 发送键的可用态跟着输入内容走
                   onChanged: (_) => setState(() {}),
                   style: TextStyle(
-                    fontSize: 14.5,
-                    height: 1.45,
+                    fontSize: 16,
+                    height: 1.5,
                     color: palette.textPrimary,
                   ),
                   decoration: InputDecoration(
-                    hintText: '发消息给服务器上的 harness',
+                    hintText: '发消息',
                     hintStyle: TextStyle(
-                      fontSize: 14.5,
+                      fontSize: 16,
                       color: palette.inkTertiary,
                     ),
                     border: InputBorder.none,
@@ -429,58 +402,6 @@ class _BridgeChatPageState extends State<BridgeChatPage> {
       case BridgeStatus.failed:
         return '失败';
     }
-  }
-}
-
-class _ErrorView extends StatelessWidget {
-  final String message;
-  final Future<void> Function()? onConfigure;
-  const _ErrorView({required this.message, this.onConfigure});
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = context.appPalette;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: palette.sidebar,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Icon(
-                Icons.cloud_off_rounded,
-                size: 26,
-                color: palette.danger,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13.5,
-                height: 1.6,
-                color: palette.textSecondary,
-              ),
-            ),
-            if (onConfigure != null) ...[
-              const SizedBox(height: 18),
-              FilledButton.tonalIcon(
-                onPressed: () => onConfigure!(),
-                icon: const Icon(Icons.tune_rounded, size: 18),
-                label: const Text('去配置'),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
   }
 }
 

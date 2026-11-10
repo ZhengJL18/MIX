@@ -112,8 +112,10 @@ class _MIXMarkdownState extends State<MIXMarkdown> {
         selectable: widget.selectable,
         // 引擎内部是 ListView，嵌在自适应高度容器（聊天气泡）里必须 shrinkWrap，
         // 否则高度塌陷成 0 导致内容不可见。分块后会有多个并列引擎，滚动一律
-        // 交给外层列表。
+        // 交给外层列表。padding 置 0，避免安全区被算进每一条消息。
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
+        reading: true,
+        padding: EdgeInsets.zero,
       );
 }
