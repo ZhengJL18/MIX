@@ -8,12 +8,37 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import 'bridge_cache.dart';
 import 'bridge_client.dart';
 import 'bridge_events.dart';
 import 'bridge_store.dart';
 
 /// 连接状态（UI 用来显示横幅）。
 enum BridgeStatus { idle, connecting, live, reconnecting, offline, failed }
+
+/// 助手消息里的一个内容片段。
+///
+/// 服务端事件是交错的（一段正文 → 一次工具调用 → 再一段正文），但旧模型把
+/// 正文拍平成 `text`、工具放独立数组，渲染时只能「正文全部在前、工具全部在
+/// 后」，跟真实发生的顺序不符。这里按到达顺序留一份分段表供渲染用；
+/// `text` 仍保留全文，历史恢复等只填 text 的路径继续走旧渲染。
+sealed class BridgeSegment {
+  const BridgeSegment();
+}
+
+/// 一段正文增量。
+class BridgeTextSeg extends BridgeSegment {
+  final StringBuffer buf = StringBuffer();
+  BridgeTextSeg([String initial = '']) {
+    buf.write(initial);
+  }
+}
+
+/// 一次工具调用。
+class BridgeToolSeg extends BridgeSegment {
+  final BridgeToolCall call;
+  const BridgeToolSeg(this.call);
+}
 
 /// 一条可渲染的消息（用户 / 助手 / 思考 / 系统提示 / 工具）。
 class BridgeBubble {
@@ -23,6 +48,9 @@ class BridgeBubble {
   final List<BridgeToolCall> tools;
   bool streaming;
   String? error;
+
+  /// 正文与工具按到达顺序交错的分段表（仅助手消息使用）。
+  final List<BridgeSegment> segments = [];
 
   /// 思考块在正文到来或回合结束后收起，点按可再展开。
   bool collapsed;
@@ -40,6 +68,16 @@ class BridgeBubble {
     this.collapsed = false,
     this.optimistic = false,
   }) : tools = tools ?? <BridgeToolCall>[];
+
+  /// 追加一段正文：并入末尾文本段，或在工具调用之后另起一段。
+  void appendText(String delta) {
+    if (delta.isEmpty) return;
+    if (segments.isNotEmpty && segments.last is BridgeTextSeg) {
+      (segments.last as BridgeTextSeg).buf.write(delta);
+    } else {
+      segments.add(BridgeTextSeg(delta));
+    }
+  }
 
   bool get isUser => role == 'user';
   bool get isAssistant => role == 'assistant';
@@ -78,6 +116,9 @@ class BridgeSessionController extends ChangeNotifier {
   BridgeStatus status = BridgeStatus.idle;
   String? lastError;
   int cursor = 0;
+
+  /// 本地缓存最后一次与服务端对齐的时间（毫秒）。UI 可据此提示「离线内容」。
+  int cacheSyncedAt = 0;
 
   StreamSubscription<BridgeEvent>? _sub;
   BridgeBubble? _openAssistant;
@@ -166,35 +207,122 @@ class BridgeSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 用服务端投影覆盖本地消息（冷启动时比逐条 replay 更快）。
+  /// 冷启动加载会话。
+  ///
+  /// 两步，顺序不能反：
+  /// 1. **先渲染盘上的缓存** —— 断网或服务不可达时，这是唯一能看的内容。
+  /// 2. **再拉服务端投影覆盖** —— 服务端是金标准，本地任何分歧都以它为准，
+  ///    不做合并也不需要冲突解决。
+  ///
+  /// 覆盖成功后把本地 SSE 游标对齐到服务端水位。少了这一步，`start()` 会从旧
+  /// 游标重新 replay 历史事件，和刚拿到的投影叠成重复气泡。
   Future<void> loadHistory() async {
+    // ── 1. 盘上的先上屏 ──
+    // 正在出字的时候不铺缓存：那会把流式内容整段清掉、闪回旧快照。
     try {
-      final list = await client.messages(sessionId);
-      messages
-        ..clear()
-        ..addAll([
-          for (final m in list)
-            BridgeBubble(
-              role: m.role,
-              text: m.text,
-              ts: m.ts,
-              collapsed: m.role == 'thinking',
-              tools: [
-                for (final t in (m.meta['tools'] is List ? m.meta['tools'] as List : const []))
-                  if (t is Map)
-                    BridgeToolCall(
-                      callId: '${t['call'] ?? ''}',
-                      name: '${t['name'] ?? ''}',
-                      running: false,
-                      ok: t['ok'] == true,
-                    ),
-              ],
-            ),
-        ]);
+      if (!turnActive) {
+        final cached = await BridgeCache.load(sessionId);
+        if (cached != null && cached.messages.isNotEmpty) {
+          _replaceMessages(cached.messages);
+          cacheSyncedAt = cached.syncedAt;
+          notifyListeners();
+        }
+      }
+    } catch (_) {
+      // 缓存读失败不影响主路径：下面还有网络。
+    }
+
+    // ── 2. 服务端覆盖 ──
+    try {
+      final page = await client.messagesPage(sessionId);
+      _replaceMessages(page.messages);
+      cacheSyncedAt = DateTime.now().millisecondsSinceEpoch;
+      lastError = null;
+
+      // 落盘是旁路：写失败只说明缓存不可用，不能污染会话状态、更不能因此
+      // 跳过下面的游标对齐（那会导致重连时重复 replay）。
+      try {
+        await BridgeCache.replaceAll(
+          sessionId,
+          page.messages,
+          lastSeq: page.lastSeq,
+          appliedSeq: page.appliedSeq,
+        );
+      } catch (_) {}
+
+      // 投影落后于事件流时只能推到 applied_seq：再往前的那些事件还没被折叠，
+      // 推过头就等于把它们跳过，客户端会永远缺一段内容。
+      final safeCursor = page.projectionBehind ? page.appliedSeq : page.lastSeq;
+      if (safeCursor > cursor) {
+        cursor = safeCursor;
+        await BridgeCursorStore.save(sessionId, cursor);
+      }
       notifyListeners();
     } catch (e) {
       lastError = '$e';
       notifyListeners();
+    }
+  }
+
+  /// 把投影消息铺成气泡（清空后重建）。
+  void _replaceMessages(List<BridgeMessage> list) {
+    messages
+      ..clear()
+      ..addAll([
+        for (final m in list)
+          BridgeBubble(
+            role: m.role,
+            text: m.text,
+            ts: m.ts,
+            collapsed: m.role == 'thinking',
+            tools: [
+              for (final t in (m.meta['tools'] is List ? m.meta['tools'] as List : const []))
+                if (t is Map)
+                  BridgeToolCall(
+                    callId: '${t['call'] ?? ''}',
+                    name: '${t['name'] ?? ''}',
+                    running: false,
+                    ok: t['ok'] == true,
+                  ),
+            ],
+            error: m.meta['error'] is String ? m.meta['error'] as String : null,
+          ),
+      ]);
+  }
+
+  /// 把当前内存里的会话整份落盘（流式过程中不写，回合结束时写一次）。
+  ///
+  /// 中途被杀只丢当前 turn 的部分内容 —— 那个 turn 还在服务端跑，下次
+  /// [loadHistory] 会从投影把它拉回来，不会丢结果。
+  Future<void> _persistSnapshot() async {
+    if (_disposed || messages.isEmpty) return;
+    final snapshot = <BridgeMessage>[
+      for (var i = 0; i < messages.length; i++)
+        BridgeMessage(
+          ord: i + 1,
+          role: messages[i].role,
+          text: messages[i].text,
+          ts: messages[i].ts,
+          meta: {
+            if (messages[i].tools.isNotEmpty)
+              'tools': [
+                for (final t in messages[i].tools)
+                  {'call': t.callId, 'name': t.name, 'ok': t.ok},
+              ],
+            if (messages[i].error != null) 'error': messages[i].error,
+          },
+        ),
+    ];
+    try {
+      await BridgeCache.replaceAll(
+        sessionId,
+        snapshot,
+        lastSeq: cursor,
+        appliedSeq: cursor,
+      );
+      cacheSyncedAt = DateTime.now().millisecondsSinceEpoch;
+    } catch (_) {
+      // 落盘失败不该影响正在进行的对话。
     }
   }
 
@@ -228,6 +356,7 @@ class BridgeSessionController extends ChangeNotifier {
         _collapseThinking();
         final a = _openAssistant ??= _newBubble('assistant', now);
         a.text += ev.text;
+        a.appendText(ev.text);
         a.streaming = true;
         turnActive = true;
         break;
@@ -242,11 +371,13 @@ class BridgeSessionController extends ChangeNotifier {
 
       case 'tool.start':
         final a = _openAssistant ??= _newBubble('assistant', now);
-        a.tools.add(BridgeToolCall(
+        final call = BridgeToolCall(
           callId: ev.toolCallId,
           name: ev.toolName,
           input: ev.data['input'] is Map ? Map<String, dynamic>.from(ev.data['input'] as Map) : const {},
-        ));
+        );
+        a.tools.add(call);
+        a.segments.add(BridgeToolSeg(call));
         break;
 
       case 'tool.end':
@@ -274,6 +405,9 @@ class BridgeSessionController extends ChangeNotifier {
             ts: now,
           ));
         }
+        // 回合结束才落盘：流式期间每条 token 都写会白烧 IO，而回合之间
+        // 被杀的情况，服务端投影能补回完整结果。
+        unawaited(_persistSnapshot());
         break;
 
       case 'error':
@@ -286,6 +420,7 @@ class BridgeSessionController extends ChangeNotifier {
           ts: now,
           error: ev.errorMessage,
         ));
+        unawaited(_persistSnapshot());
         break;
 
       case 'notice':

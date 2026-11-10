@@ -27,9 +27,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:markdown/markdown.dart' as md;
+import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../printnotes/markdown/rendering/code_engine.dart';
+import 'package:mix/printnotes/markdown/rendering/code_engine.dart';
+import 'package:mix/printnotes/providers/editor_config_provider.dart';
 
 /// 把一段 HTML 用 WebView 原生排版出来。
 ///
@@ -509,6 +511,153 @@ String _mdToHtml(String markdownText) => md.markdownToHtml(
 );
 
 // ============================================================================
+// 分块：一条消息里 markdown 与 HTML 混排时按块分派
+// ============================================================================
+//
+// 早期的判定是「整条消息」粒度：只要开头像 HTML，整条交给 WebView。问题在于
+// 剩余部分要经过 htmlFromMarkdown → _mdToHtml（package:markdown 的 GFM）——
+// 那是**第二套 markdown 实现**，没有 CodeEngine 高亮、没有 wiki-link / #tag，
+// 排版跟原生引擎不等价，同一条消息里会出现两种观感。
+//
+// 这里改成把消息切成 [markdown, html, markdown, …] 交替片段，各自走对应的
+// 渲染器，顺序与原文一致。切不出来（没有可确认边界的块）就退回整条原生引擎。
+
+/// 消息片段：交给原生 markdown 引擎，或交给 WebView。
+class HtmlPiece {
+  const HtmlPiece.markdown(this.text) : isHtml = false;
+  const HtmlPiece.html(this.text) : isHtml = true;
+
+  final String text;
+  final bool isHtml;
+
+  @override
+  String toString() => 'HtmlPiece(${isHtml ? 'html' : 'md'}, ${text.length}B)';
+}
+
+/// 会触发「独立 HTML 块」的标签。
+///
+/// 刻意**不含 table 系列**：原生引擎的 custom_node 已把 markdown 表格和零散
+/// HTML 表格渲染得贴合主题，抢过来反而更差。也不含 style/script —— 它们属于
+/// 紧邻的块，单独切出来没有意义。
+const _pieceTags = <String>{
+  'div', 'section', 'article', 'aside', 'header', 'footer', 'main', 'nav',
+  'svg', 'details', 'figure', 'figcaption', 'canvas', 'iframe', 'form',
+  'fieldset', 'dl', 'dt', 'dd',
+};
+
+/// 空元素：出现时不改变嵌套深度。
+const _voidTags = <String>{
+  'br', 'img', 'hr', 'input', 'meta', 'link', 'source', 'track', 'wbr',
+  'area', 'base', 'col', 'embed', 'param',
+};
+
+/// 标签 token。属性值里允许出现 `>`（比如 `title="a>b"`），所以分三段匹配。
+final RegExp _tagToken = RegExp(
+  r'''<(\/?)([a-zA-Z][a-zA-Z0-9:_-]*)((?:"[^"]*"|'[^']*'|[^>"'])*?)(\/?)>''',
+);
+
+/// 把整条消息切成交替片段。
+///
+/// 只切「能确认边界」的块：从白名单标签开始，按**同名标签**计数闭合，这样
+/// `<div><span>x</span></div>` 也能正确收住（不要求标签栈严格配对）。
+/// 到文末仍未闭合（流式输出的中间态）就把尾巴整段当作一个块。
+List<HtmlPiece> splitHtmlBlocks(String src) {
+  if (src.trim().isEmpty) return <HtmlPiece>[HtmlPiece.markdown(src)];
+
+  // 注意：```html 围栏**不在这里特判**。围栏在下面主循环里被跳过，整条会作为
+  // 一个 markdown 片段交给原生引擎，再由 HtmlCodeEngine 渲染成带「预览/源码/
+  // 复制」工具条的卡片 —— 那才是 html 代码块该有的样子，也省得同一种内容有
+  // 两条互相打架的呈现路径。
+
+  final spans = <(int, int)>[];
+  var i = 0;
+  while (i < src.length) {
+    // 行首 ``` 围栏：里面的内容归 CodeEngine，不参与切块。
+    if ((i == 0 || src[i - 1] == '\n') && src.startsWith('```', i)) {
+      final eol = src.indexOf('\n', i);
+      if (eol < 0) break;
+      final close = src.indexOf('```', eol);
+      i = close < 0 ? src.length : close + 3;
+      continue;
+    }
+    // 行内代码同样跳过，免得把 `a <div> b` 当成块。
+    if (src.codeUnitAt(i) == 0x60 /* ` */) {
+      final close = src.indexOf('`', i + 1);
+      i = close < 0 ? src.length : close + 1;
+      continue;
+    }
+    if (src.codeUnitAt(i) == 0x3C /* < */) {
+      final span = _matchBlockAt(src, i);
+      if (span != null) {
+        spans.add(span);
+        i = span.$2;
+        continue;
+      }
+    }
+    i++;
+  }
+  if (spans.isEmpty) return <HtmlPiece>[HtmlPiece.markdown(src)];
+
+  final out = <HtmlPiece>[];
+  var cur = 0;
+  for (final sp in spans) {
+    if (sp.$1 > cur) {
+      final md = src.substring(cur, sp.$1);
+      if (md.trim().isNotEmpty) out.add(HtmlPiece.markdown(md));
+    }
+    out.add(HtmlPiece.html(src.substring(sp.$1, sp.$2)));
+    cur = sp.$2;
+  }
+  if (cur < src.length) {
+    final md = src.substring(cur);
+    if (md.trim().isNotEmpty) out.add(HtmlPiece.markdown(md));
+  }
+  return out.isEmpty ? <HtmlPiece>[HtmlPiece.markdown(src)] : out;
+}
+
+/// 从 [start] 起尝试匹配一个完整 HTML 块，返回区间；不是块首则 null。
+(int, int)? _matchBlockAt(String s, int start) {
+  final open = _tagToken.matchAsPrefix(s, start);
+  if (open == null) return null;
+  if (open.group(1) == '/') return null; // 闭标签，不是块首
+  final name = (open.group(2) ?? '').toLowerCase();
+  if (!_pieceTags.contains(name)) return null;
+  if (_voidTags.contains(name)) return null;
+  if (open.group(4) == '/') return (start, open.end); // 自闭合
+
+  // 只统计**同名**标签的开关：跨标签不平衡（span 未闭就 </div>）也能收住，
+  // 而且 svg 内部的 <g>/<path/> 不会干扰计数。
+  var depth = 1;
+  var p = open.end;
+  while (p < s.length) {
+    final lt = s.indexOf('<', p);
+    if (lt < 0) break;
+    if (s.startsWith('<!--', lt)) {
+      final c = s.indexOf('-->', lt + 4);
+      if (c < 0) break;
+      p = c + 3;
+      continue;
+    }
+    final m = _tagToken.matchAsPrefix(s, lt);
+    if (m == null) {
+      p = lt + 1;
+      continue;
+    }
+    if ((m.group(2) ?? '').toLowerCase() == name) {
+      if (m.group(1) == '/') {
+        depth--;
+        if (depth == 0) return (start, m.end);
+      } else if (m.group(4) != '/') {
+        depth++;
+      }
+    }
+    p = m.end;
+  }
+  // 未闭合（流式中间态）→ 吃掉到文末。
+  return (start, s.length);
+}
+
+// ============================================================================
 // 代码块引擎：```html 直接出预览
 // ============================================================================
 
@@ -551,6 +700,8 @@ class _HtmlBlockCardState extends State<HtmlBlockCard> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    // 等比跟正文：卡片是「代码块」语义，比正文小一档更像 Claude 的排版。
+    final base = context.watch<EditorConfigProvider>().fontSize;
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
@@ -575,7 +726,7 @@ class _HtmlBlockCardState extends State<HtmlBlockCard> {
                       color: scheme.onSurface.withValues(alpha: 0.86),
                     ),
                   )
-                : HtmlRichView(html: widget.html, fontSize: 14),
+                : HtmlRichView(html: widget.html, fontSize: base - 1.5),
           ),
         ],
       ),

@@ -146,18 +146,39 @@ class BridgeClient {
   }
 
   /// 投影消息（服务端读模型，比自行拼事件更省事）。
-  Future<List<BridgeMessage>> messages(String sessionId, {int limit = 200}) async {
+  ///
+  /// 只取消息列表的便捷版。需要水位（判断投影是否追平、推进本地游标）时用
+  /// [messagesPage]。
+  Future<List<BridgeMessage>> messages(String sessionId, {int limit = 200}) async =>
+      (await messagesPage(sessionId, limit: limit)).messages;
+
+  /// 投影消息 + 服务端水位。
+  ///
+  /// `applied_seq < last_seq` 表示读模型还没追平，这批消息是旧的 —— 调用方
+  /// 不应该把它当成「已同步」写进本地缓存。
+  Future<BridgeMessagePage> messagesPage(
+    String sessionId, {
+    int limit = 200,
+    int? before,
+  }) async {
+    final query = {'limit': '$limit', if (before != null) 'before': '$before'};
     final r = await _client
-        .get(_uri('/v1/sessions/$sessionId/messages', {'limit': '$limit'}), headers: _headers)
+        .get(_uri('/v1/sessions/$sessionId/messages', query), headers: _headers)
         .timeout(const Duration(seconds: 15));
     _ensureOk(r, 'messages');
     final j = jsonDecode(r.body) as Map<String, dynamic>;
     final list = j['messages'];
-    if (list is! List) return const [];
-    return [
-      for (final e in list)
-        if (e is Map<String, dynamic>) BridgeMessage.fromJson(e),
+    final messages = <BridgeMessage>[
+      if (list is List)
+        for (final e in list)
+          if (e is Map<String, dynamic>) BridgeMessage.fromJson(e),
     ];
+    int asInt(Object? v) => v is int ? v : int.tryParse('$v') ?? 0;
+    return BridgeMessagePage(
+      messages: messages,
+      appliedSeq: asInt(j['applied_seq']),
+      lastSeq: asInt(j['last_seq']),
+    );
   }
 
   // ── SSE 事件流 ────────────────────────────────────────────────────────
