@@ -17,6 +17,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'bridge_events.dart';
+import 'happy_eyeballs.dart';
 
 /// 桥接层异常（网络/协议/服务端错误统一成这一类）。
 class BridgeException implements Exception {
@@ -49,8 +50,11 @@ class BridgeClient {
     http.Client? client,
     BackoffPolicy backoff = const BackoffPolicy(),
     this.idleTimeout = const Duration(seconds: 45),
-  })  : _client = client ?? http.Client(),
+  })  : _client = client ?? buildHardenedHttpClient(),
         _backoff = backoff;
+
+  /// 最近一次健康检查的失败原因（UI 用来区分「没网」「token 错」「服务没起」）。
+  String? lastHealthError;
 
   Map<String, String> get _headers => {
         'Authorization': 'Bearer $token',
@@ -63,15 +67,28 @@ class BridgeClient {
   // ── REST ──────────────────────────────────────────────────────────────
 
   /// 健康检查。
+  ///
+  /// 失败原因记到 [lastHealthError]：`catch` 里直接吞掉异常的话，UI 只能显示
+  /// 一句「连不上」，用户和排查的人都拿不到线索（究竟是 DNS、连接超时、
+  /// token 错还是服务没起）。
   Future<bool> health() async {
+    lastHealthError = null;
     try {
       final r = await _client
           .get(_uri('/healthz'), headers: _headers)
-          .timeout(const Duration(seconds: 8));
-      if (r.statusCode != 200) return false;
+          .timeout(const Duration(seconds: 12));
+      if (r.statusCode != 200) {
+        lastHealthError = r.statusCode == 401
+            ? 'token 被拒绝（401）'
+            : 'HTTP ${r.statusCode}';
+        return false;
+      }
       final j = jsonDecode(r.body);
-      return j is Map && j['ok'] == true;
-    } catch (_) {
+      final ok = j is Map && j['ok'] == true;
+      if (!ok) lastHealthError = '响应不是 healthz 格式';
+      return ok;
+    } catch (e) {
+      lastHealthError = '$e';
       return false;
     }
   }

@@ -66,7 +66,9 @@ class _BridgeChatPageState extends State<BridgeChatPage> {
     if (!ok) {
       setState(() {
         _booting = false;
-        _fatal = '连不上 ${cfg.baseUrl}/healthz\n检查隧道与服务状态';
+        _fatal = '连不上 ${cfg.baseUrl}/healthz\n'
+            '原因：${_client?.lastHealthError ?? '未知'}\n'
+            '检查隧道与服务状态';
       });
       return;
     }

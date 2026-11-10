@@ -84,6 +84,7 @@ class _BridgeSettingsPageState extends State<BridgeSettingsPage> {
         setState(() {
           _testOk = false;
           _testResult = '连不上 ${cfg.baseUrl}/healthz\n'
+              '原因：${client.lastHealthError ?? '未知'}\n'
               '检查：服务是否运行 / 隧道或反代是否通 / token 是否正确';
         });
         return;
